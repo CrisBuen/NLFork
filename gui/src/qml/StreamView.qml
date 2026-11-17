@@ -11,6 +11,8 @@ import "controls" as C
 Item {
     id: view
 
+    // Lets Main.qml keep this view when an automatic reconnect brings a new session
+    readonly property bool isStreamView: true
     readonly property var hostWindow: view.Window.window
     property bool sessionError: false
     property bool sessionLoading: true
@@ -84,7 +86,11 @@ Item {
         errorTextLabel.text = "";
         sessionLoading = !(Chiaki.window.loadingTransitionComplete || (Chiaki.settings.audioVideoDisabled & 0x02));
     }
-    StackView.onDeactivated: Chiaki.window.keepVideo = false
+    StackView.onDeactivated: {
+        Chiaki.window.keepVideo = false;
+        if (!Chiaki.session)
+            Chiaki.cancelReconnect();
+    }
 
     Component.onCompleted: {
         updateSeparateMenuGeometry();
@@ -190,6 +196,19 @@ Item {
                     }
                 }
                 visible: sessionLoading
+            }
+
+            Label {
+                id: reconnectLabel
+                anchors {
+                    bottom: spinner.top
+                    bottomMargin: 30
+                    horizontalCenter: spinner.horizontalCenter
+                }
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: 24
+                text: qsTr("Connection lost. Reconnecting (attempt %1 of %2)…").arg(Chiaki.reconnectAttempt).arg(Chiaki.reconnectMaxAttempts)
+                visible: sessionLoading && !sessionError && Chiaki.reconnectAttempt > 0
             }
 
             Label {
@@ -544,6 +563,20 @@ Item {
                 checked: Chiaki.session && !Chiaki.session.muted
                 onToggled: Chiaki.session.muted = !Chiaki.session.muted
                 KeyNavigation.left: volumeSlider
+                KeyNavigation.right: statsButton
+                Keys.onReturnPressed: toggled()
+                Keys.onEscapePressed: menuController.close()
+            }
+
+            ToolButton {
+                id: statsButton
+                Layout.rightMargin: 20
+                text: qsTr("Stats")
+                padding: 10
+                checkable: true
+                checked: Chiaki.settings.showStreamStats
+                onToggled: Chiaki.settings.showStreamStats = !Chiaki.settings.showStreamStats
+                KeyNavigation.left: muteButton
                 KeyNavigation.right: zoomButton
                 Keys.onReturnPressed: toggled()
                 Keys.onEscapePressed: menuController.close()
@@ -556,7 +589,7 @@ Item {
                 checkable: true
                 checked: Chiaki.window.videoMode == ChiakiWindow.VideoMode.Zoom
                 onToggled: Chiaki.window.videoMode = Chiaki.window.videoMode == ChiakiWindow.VideoMode.Zoom ? ChiakiWindow.VideoMode.Normal : ChiakiWindow.VideoMode.Zoom
-                KeyNavigation.left: muteButton
+                KeyNavigation.left: statsButton
                 KeyNavigation.right: {
                     if(Chiaki.window.videoMode == ChiakiWindow.VideoMode.Zoom)
                         zoomFactor
@@ -1223,6 +1256,11 @@ Item {
 
         function onSessionChanged() {
             if (!Chiaki.session) {
+                if (Chiaki.reconnectAttempt > 0 && !sessionError) {
+                    // Stay here with the spinner; the backend starts a new session shortly
+                    sessionLoading = true;
+                    return;
+                }
                 if (errorTitleLabel.text)
                     closeTimer.start();
                 else

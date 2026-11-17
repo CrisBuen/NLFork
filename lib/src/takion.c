@@ -1154,6 +1154,8 @@ static void *takion_thread_func(void *user)
 	int64_t hitch_last_packet_us = 0;
 	unsigned hitch_gap_count = 0, hitch_stall_count = 0;
 	int64_t hitch_gap_max_us = 0, hitch_stall_max_us = 0;
+	takion->hitch_network_gaps = 0;
+	takion->hitch_recv_stalls = 0;
 
 	while(true)
 	{
@@ -1224,6 +1226,7 @@ static void *takion_thread_func(void *user)
 		{
 			int64_t gap_us = recv_us - hitch_last_packet_us;
 			hitch_gap_count++;
+			takion->hitch_network_gaps = hitch_gap_count;
 			if(gap_us > hitch_gap_max_us)
 				hitch_gap_max_us = gap_us;
 			CHIAKI_LOGW(takion->log, "[hitch] No packets from the console for %lld ms (network or Wi-Fi gap)",
@@ -1243,6 +1246,7 @@ static void *takion_thread_func(void *user)
 		{
 			int64_t stall_us = handled_us - recv_us;
 			hitch_stall_count++;
+			takion->hitch_recv_stalls = hitch_stall_count;
 			if(stall_us > hitch_stall_max_us)
 				hitch_stall_max_us = stall_us;
 			CHIAKI_LOGW(takion->log, "[hitch] Receive thread busy for %lld ms handling one packet (decoder or callback stall)",

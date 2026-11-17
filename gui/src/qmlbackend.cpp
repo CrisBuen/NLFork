@@ -579,6 +579,50 @@ void QmlBackend::goToSleep()
         resume_session = true;
     }
 }
+#define AUTO_RECONNECT_MAX_ATTEMPTS 3
+#define AUTO_RECONNECT_DELAY_MS 2000
+
+int QmlBackend::reconnectMaxAttempts() const
+{
+    return AUTO_RECONNECT_MAX_ATTEMPTS;
+}
+
+void QmlBackend::setReconnectAttempt(int attempt)
+{
+    if (reconnect_attempt == attempt)
+        return;
+    reconnect_attempt = attempt;
+    emit reconnectAttemptChanged();
+}
+
+void QmlBackend::cancelReconnect()
+{
+    if (!reconnect_attempt)
+        return;
+    qCInfo(chiakiGui) << "[reconnect] Cancelled";
+    reconnect_generation++;
+    setReconnectAttempt(0);
+}
+
+void QmlBackend::restartLastSession()
+{
+    // Rebuild from the saved request; createSession resolves the decoder again.
+    createSession({
+        session_info.settings,
+        session_info.target,
+        session_info.host,
+        session_info.nickname,
+        session_info.regist_key,
+        session_info.morning,
+        session_info.initial_login_pin,
+        session_info.duid,
+        session_info.auto_regist,
+        session_info.fullscreen,
+        session_info.zoom,
+        session_info.stretch,
+    });
+}
+
 void QmlBackend::resumeFromSleep()
 {
 #ifdef Q_OS_WINDOWS
@@ -594,20 +638,7 @@ void QmlBackend::resumeFromSleep()
         resume_session = false;
         if(session_info.duid.isEmpty())
         {
-            createSession({
-                session_info.settings,
-                session_info.target,
-                session_info.host,
-                session_info.nickname,
-                session_info.regist_key,
-                session_info.morning,
-                session_info.initial_login_pin,
-                session_info.duid,
-                session_info.auto_regist,
-                session_info.fullscreen,
-                session_info.zoom,
-                session_info.stretch,
-            });
+            restartLastSession();
         }
         else
         {
@@ -1113,6 +1144,7 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
             qCInfo(chiakiGui) << "Falling back to software decoder";
     }
 
+    session_reached_stream = false;
     try {
         session = new StreamSession(session_info, this);
     } catch (const Exception &e) {
@@ -1164,11 +1196,39 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
         if (session != session_for_connections)
             return;
 
-        if (chiaki_quit_reason_is_error(reason)) {
-            QString m = tr("NLFork session has quit") + ":\n" + chiaki_quit_reason_string(reason);
-            if (!reason_str.isEmpty())
-                m += "\n" + tr("Reason") + ": \"" + reason_str + "\"";
-            emit sessionError(tr("Session has quit"), m);
+        // A stream that drops on a network error is restarted a few times before
+        // giving up. A console that ends the session itself is never reconnected,
+        // and a console in rest mode is never woken up by this.
+        const bool network_error = reason == CHIAKI_QUIT_REASON_STREAM_CONNECTION_UNKNOWN
+            || (reconnect_attempt > 0 && (reason == CHIAKI_QUIT_REASON_CTRL_UNKNOWN
+                || reason == CHIAKI_QUIT_REASON_CTRL_CONNECT_FAILED
+                || reason == CHIAKI_QUIT_REASON_SESSION_REQUEST_UNKNOWN));
+        bool reconnect = network_error
+            && (session_reached_stream || reconnect_attempt > 0)
+            && session_info.duid.isEmpty()
+            && settings->GetAutoReconnect()
+            && reconnect_attempt < AUTO_RECONNECT_MAX_ATTEMPTS;
+#ifdef Q_OS_WINDOWS
+        if (windows_wake_sleep->getWakeState() != WindowsWakeState::Awake)
+            reconnect = false;
+#endif
+
+        if (reconnect) {
+            qCWarning(chiakiGui).nospace() << "[reconnect] Stream dropped (" << chiaki_quit_reason_string(reason)
+                                           << "), reconnecting: attempt " << reconnect_attempt + 1
+                                           << " of " << AUTO_RECONNECT_MAX_ATTEMPTS;
+            setReconnectAttempt(reconnect_attempt + 1);
+        } else {
+            if (reconnect_attempt > 0) {
+                qCWarning(chiakiGui).nospace() << "[reconnect] Giving up after " << reconnect_attempt << " attempt(s)";
+                setReconnectAttempt(0);
+            }
+            if (chiaki_quit_reason_is_error(reason)) {
+                QString m = tr("NLFork session has quit") + ":\n" + chiaki_quit_reason_string(reason);
+                if (!reason_str.isEmpty())
+                    m += "\n" + tr("Reason") + ": \"" + reason_str + "\"";
+                emit sessionError(tr("Session has quit"), m);
+            }
         }
 
         chiaki_log_mutex.lock();
@@ -1193,6 +1253,19 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
         else
             windows_wake_sleep->setWakeState(WindowsWakeState::Sleeping);
 #endif
+
+        if (reconnect) {
+            const quint64 generation = ++reconnect_generation;
+            QTimer::singleShot(AUTO_RECONNECT_DELAY_MS, this, [this, generation]() {
+                if (generation != reconnect_generation || reconnect_attempt == 0 || session)
+                    return;
+                restartLastSession();
+                if (!session) {
+                    setReconnectAttempt(0);
+                    emit sessionError(tr("Session has quit"), tr("Could not reconnect to the console."));
+                }
+            });
+        }
     });
 
     connect(session, &StreamSession::LoginPINRequested, this, [this, connect_info](bool incorrect) {
@@ -1219,8 +1292,14 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
         if (session != session_for_connections)
             return;
 
-        if (session_for_connections->IsConnected())
+        if (session_for_connections->IsConnected()) {
             setDiscoveryEnabled(false);
+            session_reached_stream = true;
+            if (reconnect_attempt > 0) {
+                qCInfo(chiakiGui).nospace() << "[reconnect] Stream restored on attempt " << reconnect_attempt;
+                setReconnectAttempt(0);
+            }
+        }
     });
     chiaki_log_mutex.lock();
     chiaki_log_ctx = session->GetChiakiLog();

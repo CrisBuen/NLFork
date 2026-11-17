@@ -1945,7 +1945,6 @@ DialogView {
                         }
 
                         C.CheckBox {
-                            lastInFocusChain: true
                             checked: Chiaki.settings.showStreamStats
                             onToggled: Chiaki.settings.showStreamStats = !Chiaki.settings.showStreamStats
                         }
@@ -1953,6 +1952,22 @@ DialogView {
                         Label {
                             Layout.alignment: Qt.AlignRight
                             text: qsTr("(Unchecked)")
+                        }
+
+                        Label {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("Reconnect Automatically After a Network Drop")
+                        }
+
+                        C.CheckBox {
+                            lastInFocusChain: true
+                            checked: Chiaki.settings.autoReconnect
+                            onToggled: Chiaki.settings.autoReconnect = !Chiaki.settings.autoReconnect
+                        }
+
+                        Label {
+                            Layout.alignment: Qt.AlignRight
+                            text: qsTr("(Checked)")
                         }
                     }
                 }

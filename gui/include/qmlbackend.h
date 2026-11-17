@@ -93,6 +93,8 @@ class QmlBackend : public QObject
     Q_PROPERTY(bool controllerMappingInProgress READ controllerMappingInProgress NOTIFY controllerMappingInProgressChanged)
     Q_PROPERTY(bool controllerMappingAltered READ controllerMappingAltered NOTIFY controllerMappingAlteredChanged)
     Q_PROPERTY(bool enableAnalogStickMapping READ enableAnalogStickMapping WRITE setEnableAnalogStickMapping NOTIFY enableAnalogStickMappingChanged)
+    Q_PROPERTY(int reconnectAttempt READ reconnectAttempt NOTIFY reconnectAttemptChanged)
+    Q_PROPERTY(int reconnectMaxAttempts READ reconnectMaxAttempts CONSTANT)
 
 public:
 
@@ -152,6 +154,9 @@ public:
     void finishAutoRegister(const ChiakiRegisteredHost &host);
 
     bool autoConnect() const;
+    int reconnectAttempt() const { return reconnect_attempt; }
+    int reconnectMaxAttempts() const;
+    Q_INVOKABLE void cancelReconnect();
 
     void psnConnector();
 
@@ -244,6 +249,7 @@ signals:
 
     void error(const QString &title, const QString &text);
     void sessionError(const QString &title, const QString &text);
+    void reconnectAttemptChanged();
     void sessionPinDialogRequested();
     void sessionStopDialogRequested();
     void registDialogRequested(const QString &host, bool ps5, const QString &duid);
@@ -330,6 +336,12 @@ private:
     bool controller_mapping_in_progress = false;
     bool enable_analog_stick_mapping = false;
     bool resume_session = false;
+    // Automatic reconnect after the stream drops on a network error
+    int reconnect_attempt = 0;
+    quint64 reconnect_generation = 0;
+    bool session_reached_stream = false;
+    void setReconnectAttempt(int attempt);
+    void restartLastSession();
     bool settings_allocd = false;
     HostMAC auto_connect_mac = {};
     QString auto_connect_nickname = "";

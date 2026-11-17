@@ -110,6 +110,7 @@ public:
 
     bool hasVideo() const;
     int droppedFrames() const;
+    int renderHitchCount() const { return render_hitch_count; }
     void increaseDroppedFrames();
 
     bool directStream() const;
@@ -318,6 +319,7 @@ private:
     RenderBackend render_backend = RenderBackend::Vulkan;
     int grab_input = 0;
     int dropped_frames = 0;
+    int render_hitch_count = 0;
     bool is_window_adjustable = false;
     bool is_stream_window_adjustable = false;
     QAtomicInteger<int> dropped_frames_current = 0;

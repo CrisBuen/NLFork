@@ -259,8 +259,11 @@ void ControllerManager::HandleEvents()
 		poll_clock.start();
 	const qint64 now_ms = poll_clock.elapsed();
 	if(last_poll_ms >= 0 && !open_controllers.isEmpty() && now_ms - last_poll_ms >= CONTROLLER_POLL_HITCH_MS)
+	{
+		poll_hitch_count++;
 		qCWarning(chiakiGui).nospace() << "[hitch] Controller input was not read for " << (now_ms - last_poll_ms)
 			<< " ms (GUI thread busy, input reached the console late)";
+	}
 	last_poll_ms = now_ms;
 
 	SDL_Event event;

@@ -352,6 +352,9 @@ class StreamSession : public QObject
 		double GetAveragePacketLoss()	{ return average_packet_loss; }
 		quint64 DecoderFlushGeneration() const { return decoder_flush_generation.loadRelaxed(); }
 		int GetFramesLost()		{ return frames_lost; }
+		double GetRttMs()		{ return session.rtt_us / 1000.0; }
+		int GetNetworkHitches()	{ return (int)session.stream_connection.takion.hitch_network_gaps; }
+		int GetReceiveStalls()	{ return (int)session.stream_connection.takion.hitch_recv_stalls; }
 		bool GetMuted()	{ return muted; }
 		void SetMuted(bool enable)	{ if (enable != muted) ToggleMute(); }
 		void SetAudioVolume(int volume) { audio_volume = volume; }

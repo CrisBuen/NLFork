@@ -113,6 +113,17 @@ void QmlSettings::setShowStreamStats(bool enabled)
     emit showStreamStatsChanged();
 }
 
+bool QmlSettings::autoReconnect() const
+{
+    return settings->GetAutoReconnect();
+}
+
+void QmlSettings::setAutoReconnect(bool enabled)
+{
+    settings->SetAutoReconnect(enabled);
+    emit autoReconnectChanged();
+}
+
 bool QmlSettings::streamerMode() const
 {
     return settings->GetStreamerMode();
@@ -1900,6 +1911,7 @@ void QmlSettings::refreshAllKeys()
     emit allowJoystickBackgroundEventsChanged();
     emit startMicUnmutedChanged();
     emit showStreamStatsChanged();
+    emit autoReconnectChanged();
     emit streamerModeChanged();
 #ifdef CHIAKI_GUI_ENABLE_STEAMDECK_NATIVE
     emit verticalDeckChanged();

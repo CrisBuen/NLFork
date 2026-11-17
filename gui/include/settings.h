@@ -276,6 +276,8 @@ class Settings : public QObject
 
 		bool GetShowStreamStats() const            { return settings.value("settings/show_stream_stats", false).toBool(); }
 		void SetShowStreamStats(bool enabled)      { settings.setValue("settings/show_stream_stats", enabled); }
+		bool GetAutoReconnect() const              { return settings.value("settings/auto_reconnect", true).toBool(); }
+		void SetAutoReconnect(bool enabled)        { settings.setValue("settings/auto_reconnect", enabled); }
 
 		bool GetStreamerMode() const		{ return settings.value("settings/streamer_mode", false).toBool(); }
 		void SetStreamerMode(bool enabled)	{ settings.setValue("settings/streamer_mode", enabled); }

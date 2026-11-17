@@ -17,9 +17,13 @@ CHIAKI_EXPORT uint64_t chiaki_time_now_monotonic_us()
 	LARGE_INTEGER v;
 	if(!QueryPerformanceCounter(&v))
 		return 0;
-	v.QuadPart *= 1000000;
-	v.QuadPart /= f.QuadPart;
-	return v.QuadPart;
+	// Split into whole seconds and remainder: multiplying the raw counter by
+	// 1000000 first overflows int64 after ~10.7 days of uptime at the usual
+	// 10 MHz frequency, which made the clock jump to ~1.8e19 us and froze the
+	// frame pacing loop.
+	const uint64_t ticks = (uint64_t)v.QuadPart;
+	const uint64_t freq = (uint64_t)f.QuadPart;
+	return (ticks / freq) * 1000000 + ((ticks % freq) * 1000000) / freq;
 #else
 	struct timespec time;
 	clock_gettime(CLOCK_MONOTONIC, &time);

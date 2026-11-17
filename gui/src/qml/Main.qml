@@ -532,7 +532,8 @@ Item {
         target: Chiaki
 
         function onSessionChanged() {
-            if (Chiaki.session)
+            // An automatic reconnect reuses the stream view that is already showing
+            if (Chiaki.session && !(stack.currentItem && stack.currentItem.isStreamView))
                 root.showStreamView();
         }
 

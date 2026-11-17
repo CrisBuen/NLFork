@@ -155,6 +155,12 @@ typedef struct chiaki_takion_t
 	ChiakiReorderQueue data_queue;
 	ChiakiReorderQueue video_queue;
 	bool video_queue_initialized;
+	/**
+	 * Hitch counters for the stats overlay. Written only by the takion thread,
+	 * read by the GUI as a snapshot (a stale value is harmless).
+	 */
+	volatile uint32_t hitch_network_gaps;
+	volatile uint32_t hitch_recv_stalls;
 	int64_t video_queue_head_wait_start_us;
 	uint64_t video_queue_head_wait_seq_num;
 	ChiakiTakionSendBuffer send_buffer;

@@ -35,6 +35,7 @@ class ControllerManager : public QObject
 		bool creating_controller_mapping;
 		bool joystick_allow_background_events;
 		bool is_app_active;
+		int poll_hitch_count = 0;
 		bool moved;
 		uint8_t dualsense_intensity;
 
@@ -50,6 +51,8 @@ class ControllerManager : public QObject
 
 	public:
 		static ControllerManager *GetInstance();
+		// Times controller input was not read for >= 25 ms (GUI thread only)
+		int PollHitchCount() const { return poll_hitch_count; }
 
 		ControllerManager(QObject *parent = nullptr);
 		~ControllerManager();

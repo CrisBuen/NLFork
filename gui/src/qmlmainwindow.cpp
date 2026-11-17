@@ -4,6 +4,7 @@
 #include "chiaki/log.h"
 #include "chiaki/time.h"
 #include "streamsession.h"
+#include "controllermanager.h"
 
 #include <qpa/qplatformnativeinterface.h>
 
@@ -173,11 +174,23 @@ public:
         valueFont.setBold(true);
 
         bitrateRow = makeRow(tr("Mbps"), QColor(QStringLiteral("#00a7ff")), titleFont, valueFont, bitrateValue);
+        pingRow = makeRow(tr("ping"), QColor(QStringLiteral("#a5d6a7")), titleFont, valueFont, pingValue);
         queueRow = makeRow(tr("queue depth avg"), QColor(QStringLiteral("#90caf9")), titleFont, valueFont, queueDepthValue);
         pendingRow = makeRow(tr("pending frame age"), QColor(QStringLiteral("#90caf9")), titleFont, valueFont, pendingAgeValue);
         packetLossRow = makeRow(tr("packet loss"), QColor(QStringLiteral("#ef9a9a")), titleFont, valueFont, packetLossValue);
         droppedFramesRow = makeRow(tr("dropped frames"), QColor(QStringLiteral("#ef9a9a")), titleFont, valueFont, droppedFramesValue);
         lostFramesRow = makeRow(tr("lost frames"), QColor(QStringLiteral("#ef9a9a")), titleFont, valueFont, lostFramesValue);
+        networkHitchRow = makeRow(tr("network hitches"), QColor(QStringLiteral("#ffcc80")), titleFont, valueFont, networkHitchValue);
+        pcHitchRow = makeRow(tr("PC hitches"), QColor(QStringLiteral("#ffcc80")), titleFont, valueFont, pcHitchValue);
+
+        // Hitch counters change without a signal; poll them while the overlay is shown.
+        auto *pollTimer = new QTimer(this);
+        pollTimer->setInterval(500);
+        connect(pollTimer, &QTimer::timeout, this, [this]() {
+            if (isVisible())
+                refresh();
+        });
+        pollTimer->start();
 
         outer->addWidget(panel, 0, Qt::AlignRight | Qt::AlignVCenter);
 
@@ -236,6 +249,9 @@ public:
         if (current_session)
             QObject::disconnect(current_session, nullptr, this, nullptr);
         current_session = session;
+        // Count PC hitches per session, not since the app started.
+        render_hitch_base = owner ? owner->renderHitchCount() : 0;
+        controller_hitch_base = ControllerManager::GetInstance()->PollHitchCount();
         if (current_session) {
             connect(current_session, &StreamSession::MeasuredBitrateChanged, this, &StatsOverlayWidget::refresh);
             connect(current_session, &StreamSession::AveragePacketLossChanged, this, &StatsOverlayWidget::refresh);
@@ -277,6 +293,19 @@ public:
             lostFramesValue->setText(QString::number(session->GetFramesLost()));
         else
             lostFramesValue->clear();
+
+        const double rttMs = hasSession ? session->GetRttMs() : 0.0;
+        pingRow->setVisible(rttMs > 0.0);
+        pingValue->setText(tr("%1 ms").arg(rttMs, 0, 'f', rttMs < 10.0 ? 1 : 0));
+
+        networkHitchRow->setVisible(hasSession);
+        networkHitchValue->setText(hasSession ? QString::number(session->GetNetworkHitches()) : QString());
+
+        const int pcHitches = (hasSession ? session->GetReceiveStalls() : 0)
+            + ((owner ? owner->renderHitchCount() : 0) - render_hitch_base)
+            + (ControllerManager::GetInstance()->PollHitchCount() - controller_hitch_base);
+        pcHitchRow->setVisible(hasSession);
+        pcHitchValue->setText(hasSession ? QString::number(pcHitches) : QString());
     }
 
 private:
@@ -289,6 +318,14 @@ private:
     QWidget *packetLossRow = nullptr;
     QWidget *droppedFramesRow = nullptr;
     QWidget *lostFramesRow = nullptr;
+    QWidget *pingRow = nullptr;
+    QWidget *networkHitchRow = nullptr;
+    QWidget *pcHitchRow = nullptr;
+    QLabel *pingValue = nullptr;
+    QLabel *networkHitchValue = nullptr;
+    QLabel *pcHitchValue = nullptr;
+    int render_hitch_base = 0;
+    int controller_hitch_base = 0;
     QLabel *bitrateValue = nullptr;
     QLabel *queueDepthValue = nullptr;
     QLabel *pendingAgeValue = nullptr;
@@ -3130,9 +3167,11 @@ void QmlMainWindow::presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, q
         const qint64 gui_handoff_us = present_entry_us - decoder_delivery_us;
         // Always logged (rare): the GUI thread was blocked, e.g. compiling shaders, so the
         // picture froze even though the network and the decoder were fine.
-        if (gui_handoff_us >= 50000)
+        if (gui_handoff_us >= 50000) {
+            render_hitch_count++;
             qCWarning(chiakiGui).nospace() << "[hitch] Decoded frame waited " << gui_handoff_us / 1000
                                            << " ms for the GUI thread (render stall)";
+        }
         if (gui_handoff_us >= 12000) {
             CHIAKI_NOISY_DEBUG().nospace()
                 << "[decode] gui_handoff_outlier_us=" << gui_handoff_us
@@ -5390,7 +5429,9 @@ renderer_backend_ready:
             quick_need_render.storeRelaxed(1);
             setStreamMaxFPS(60);
             setStreamWindowAdjustable(false);
-            if(qEnvironmentVariable("XDG_CURRENT_DESKTOP") != "gamescope")
+            // Keep the stream window as it is while an automatic reconnect is pending
+            const bool reconnecting = backend && backend->reconnectAttempt() > 0;
+            if(!reconnecting && qEnvironmentVariable("XDG_CURRENT_DESKTOP") != "gamescope")
             {
                 if(!this->settings->GetGeometry().isEmpty())
                 {
@@ -5738,8 +5779,10 @@ bool QmlMainWindow::throttleFramePresentation(double interval_s)
     const uint64_t now_us = chiaki_time_now_monotonic_us();
     if (!next_frame_target_us)
         next_frame_target_us = now_us + interval_us;
-    while (next_frame_target_us <= now_us)
-        next_frame_target_us += interval_us;
+    // Skip the missed targets in one step: a clock jump or a long stall must not
+    // turn this into a loop of billions of additions on the render thread.
+    if (next_frame_target_us <= now_us)
+        next_frame_target_us += ((now_us - next_frame_target_us) / interval_us + 1) * interval_us;
     const qint64 swap_to_start_gap_estimate_us = this->swap_to_start_gap_estimate_us.loadAcquire();
     const qint64 start_frame_block_estimate_us = this->start_frame_block_estimate_us.loadAcquire();
     const qint64 render_submit_estimate_us = this->render_submit_estimate_us.loadAcquire();
