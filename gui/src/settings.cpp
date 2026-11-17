@@ -451,6 +451,7 @@ static const QMap<ChiakiVideoResolutionPreset, QString> resolutions = {
 	{ CHIAKI_VIDEO_RESOLUTION_PRESET_360p, "360p" },
 	{ CHIAKI_VIDEO_RESOLUTION_PRESET_540p, "540p" },
 	{ CHIAKI_VIDEO_RESOLUTION_PRESET_720p, "720p" },
+	// 1440p was tried and the PS5 refuses it ("AvCap failed to initialize video"), so it is not offered
 	{ CHIAKI_VIDEO_RESOLUTION_PRESET_1080p, "1080p" }
 };
 
@@ -697,6 +698,32 @@ PlaceboPreset Settings::GetPlaceboPreset() const
 void Settings::SetPlaceboPreset(PlaceboPreset preset)
 {
 	settings.setValue("settings/placebo_preset", placebo_preset_values[preset]);
+}
+
+// Matches the SHARPNESS 0.2 that FSR.glsl ships with
+static const float fsr_sharpness_default = 0.9f;
+
+float Settings::GetFsrSharpness() const
+{
+	return qBound(0.0f, settings.value("settings/fsr_sharpness", fsr_sharpness_default).toFloat(), 1.0f);
+}
+
+void Settings::SetFsrSharpness(float sharpness)
+{
+	settings.setValue("settings/fsr_sharpness", QString("%1").arg(qBound(0.0f, sharpness, 1.0f), 0, 'f', 2));
+}
+
+QStringList Settings::GetCustomShaders() const
+{
+	return settings.value("settings/custom_shaders").toStringList();
+}
+
+void Settings::SetCustomShaders(const QStringList &shaders)
+{
+	if(shaders.isEmpty())
+		settings.remove("settings/custom_shaders");
+	else
+		settings.setValue("settings/custom_shaders", shaders);
 }
 
 static const QMap<RenderBackend, QString> render_backend_values = {

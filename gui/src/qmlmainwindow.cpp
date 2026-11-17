@@ -1137,7 +1137,8 @@ static bool shouldUseRefreshPacedBuffering(bool stream_active, int schedule_fram
 
 static void logLatencyStats(const char *label, qint64 delta_us)
 {
-    if (!chiakiGui().isDebugEnabled())
+    // CHIAKI_VERBOSE_LOG_NOISE=1 alone is enough, so the numbers can be measured without the debug category
+    if (!detailedVerboseTelemetryEnabled())
         return;
     if (!label)
         return;
@@ -1188,7 +1189,7 @@ static void logLatencyStats(const char *label, qint64 delta_us)
     if (*last_log_us == 0)
         *last_log_us = now_us;
     else if (now_us - *last_log_us >= 1000000 && *samples > 0) {
-        CHIAKI_NOISY_DEBUG().nospace()
+        qCInfo(chiakiGui).nospace()
             << "[latency] " << label
             << " min_us=" << *min_us
             << " max_us=" << *max_us
@@ -2422,20 +2423,58 @@ static const char *render_params_path()
     return qPrintable(path);
 }
 
-static const struct pl_hook *load_mpv_hook(pl_gpu gpu, const QString &path)
+static const struct pl_hook *parse_mpv_hook(pl_gpu gpu, const QByteArray &shader, const QString &path)
 {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        qCWarning(chiakiGui) << "Failed to open shader resource" << path;
-        return nullptr;
-    }
-
-    QByteArray shader = file.readAll();
     const struct pl_hook *hook = pl_mpv_user_shader_parse(gpu, shader.constData(), static_cast<size_t>(shader.size()));
     if (!hook)
         qCWarning(chiakiGui) << "Failed to parse shader resource" << path;
     return hook;
 }
+
+static bool read_shader_file(const QString &path, QByteArray &shader)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qCWarning(chiakiGui) << "Failed to open shader resource" << path;
+        return false;
+    }
+    shader = file.readAll();
+    return true;
+}
+
+static const struct pl_hook *load_mpv_hook(pl_gpu gpu, const QString &path)
+{
+    QByteArray shader;
+    if (!read_shader_file(path, shader))
+        return nullptr;
+    return parse_mpv_hook(gpu, shader, path);
+}
+
+// sharpness runs from 0.0 (softest) to 1.0 (sharpest). FSR.glsl instead counts SHARPNESS in
+// stops of reduction, from 0.0 (sharpest) to 2.0 (softest), so the value is turned around here.
+static const struct pl_hook *load_fsr_hook(pl_gpu gpu, float sharpness)
+{
+    static const QString path = QStringLiteral(":/shaders/FSR.glsl");
+    static const QByteArray default_define = QByteArrayLiteral("#define SHARPNESS 0.2");
+
+    QByteArray shader;
+    if (!read_shader_file(path, shader))
+        return nullptr;
+    if (!shader.contains(default_define)) {
+        qCWarning(chiakiGui) << "FSR shader has no SHARPNESS define to adjust, using its built-in sharpness";
+        return parse_mpv_hook(gpu, shader, path);
+    }
+
+    const float stops = (1.0f - qBound(0.0f, sharpness, 1.0f)) * 2.0f;
+    QByteArray adjusted = shader;
+    adjusted.replace(default_define, QByteArrayLiteral("#define SHARPNESS ") + QByteArray::number(stops, 'f', 2));
+    if (const struct pl_hook *hook = parse_mpv_hook(gpu, adjusted, path))
+        return hook;
+    return parse_mpv_hook(gpu, shader, path);
+}
+
+// Each shader adds passes to every frame, so the list is kept short
+static constexpr int max_custom_shaders = 8;
 
 static bool uses_fsrcnnx(PlaceboUpscaler upscaler)
 {
@@ -2684,6 +2723,9 @@ QmlMainWindow::~QmlMainWindow()
     pl_mpv_user_shader_destroy(&fsr_hook);
     pl_mpv_user_shader_destroy(&fsrcnnx_hook_8);
     pl_mpv_user_shader_destroy(&fsrcnnx_hook_16);
+    for (const struct pl_hook *&hook : custom_hooks)
+        pl_mpv_user_shader_destroy(&hook);
+    custom_hooks.clear();
     if (render_backend == RenderBackend::Vulkan) {
         pl_vulkan_destroy(&placebo_vulkan);
         pl_vk_inst_destroy(&placebo_vk_inst);
@@ -2878,6 +2920,8 @@ void QmlMainWindow::setVideoPreset(VideoPreset preset)
 void QmlMainWindow::setSettings(Settings *new_settings)
 {
     settings = new_settings;
+    // Each profile has its own FSR sharpness and custom shaders
+    shader_hooks_changed.storeRelaxed(1);
     QString profile = settings->GetCurrentProfile();
     qCCritical(chiakiGui) << "Current Profile: " << profile;
     if(profile.isEmpty())
@@ -5325,7 +5369,10 @@ renderer_backend_ready:
     this->renderparams_opts = pl_options_alloc(this->placebo_log);
     pl_options_reset(this->renderparams_opts, &pl_render_high_quality_params);
     this->renderparams_changed = true;
-    this->fsr_hook = load_mpv_hook(placeboGpu(), QStringLiteral(":/shaders/FSR.glsl"));
+    this->loaded_fsr_sharpness = settings->GetFsrSharpness();
+    this->fsr_hook = load_fsr_hook(placeboGpu(), this->loaded_fsr_sharpness);
+    // The user's own shaders are loaded by the render thread on its first frame
+    this->shader_hooks_changed.storeRelaxed(1);
     this->fsrcnnx_hook_8 = load_mpv_hook(placeboGpu(), QStringLiteral(":/shaders/FSRCNNX_x2_8-0-4-1.glsl"));
     this->fsrcnnx_hook_16 = load_mpv_hook(placeboGpu(), QStringLiteral(":/shaders/FSRCNNX_x2_16-0-4-1.glsl"));
 
@@ -5867,8 +5914,46 @@ void QmlMainWindow::drainDeferredSwaps()
     finalizeDeferredPresentIfIdle();
 }
 
+void QmlMainWindow::reloadShaderHooks()
+{
+    if (!settings) {
+        // Settings arrive after init, try again on the next frame
+        shader_hooks_changed.storeRelaxed(1);
+        return;
+    }
+
+    const float sharpness = settings->GetFsrSharpness();
+    if (qAbs(sharpness - loaded_fsr_sharpness) > 0.001f) {
+        if (const struct pl_hook *hook = load_fsr_hook(placeboGpu(), sharpness)) {
+            pl_mpv_user_shader_destroy(&fsr_hook);
+            fsr_hook = hook;
+            qCInfo(chiakiGui) << "Set FSR sharpness to" << sharpness;
+        }
+        loaded_fsr_sharpness = sharpness;
+    }
+
+    const QStringList shaders = settings->GetCustomShaders();
+    if (shaders != loaded_custom_shaders) {
+        for (const struct pl_hook *&hook : custom_hooks)
+            pl_mpv_user_shader_destroy(&hook);
+        custom_hooks.clear();
+        for (const QString &path : shaders) {
+            if (custom_hooks.size() >= max_custom_shaders) {
+                qCWarning(chiakiGui) << "Ignoring custom shaders after the first" << max_custom_shaders;
+                break;
+            }
+            if (const struct pl_hook *hook = load_mpv_hook(placeboGpu(), path)) {
+                custom_hooks.append(hook);
+                qCInfo(chiakiGui) << "Loaded custom shader" << path;
+            }
+        }
+        loaded_custom_shaders = shaders;
+    }
+}
+
 void QmlMainWindow::updatePlacebo()
 {
+    shader_hooks_changed.storeRelaxed(1);
     renderparams_changed = true;
     schedule_frame_mixer_active.storeRelaxed(configuredFrameMixerEnabledForScheduling() ? 1 : 0);
 }
@@ -7527,6 +7612,9 @@ void QmlMainWindow::render()
     if (sw_frame.color_repr.alpha == PL_ALPHA_NONE)
         params.background_transparency = 0.0;
 
+    if (shader_hooks_changed.fetchAndStoreRelaxed(0) != 0)
+        reloadShaderHooks();
+
     const struct pl_hook *fsrcnnx_hook = nullptr;
     if (hint_frame) {
         const float src_width = fabsf(pl_rect_w(hint_frame->crop));
@@ -7539,10 +7627,19 @@ void QmlMainWindow::render()
                                                fsr_hook, fsrcnnx_hook_8, fsrcnnx_hook_16);
         }
     }
-    const struct pl_hook *active_hooks[] = {fsrcnnx_hook};
-    if (fsrcnnx_hook) {
+    const struct pl_hook *active_hooks[1 + max_custom_shaders];
+    int num_active_hooks = 0;
+    if (fsrcnnx_hook)
+        active_hooks[num_active_hooks++] = fsrcnnx_hook;
+    if (hint_frame) {
+        for (const struct pl_hook *hook : std::as_const(custom_hooks))
+            active_hooks[num_active_hooks++] = hook;
+    }
+    if (num_active_hooks > 0) {
         params.hooks = active_hooks;
-        params.num_hooks = 1;
+        params.num_hooks = num_active_hooks;
+    }
+    if (fsrcnnx_hook) {
         switch (video_preset) {
         case VideoPreset::HighQualitySpatial:
             if (fsrcnnx_hook == fsr_hook)

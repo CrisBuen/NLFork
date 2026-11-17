@@ -465,6 +465,13 @@ private:
     const struct pl_hook *fsr_hook = nullptr;
     const struct pl_hook *fsrcnnx_hook_8 = nullptr;
     const struct pl_hook *fsrcnnx_hook_16 = nullptr;
+    // mpv-style shaders the user added, applied in order after the built-in upscaler.
+    // Like the hooks above, these are only touched on the render thread.
+    QList<const struct pl_hook *> custom_hooks;
+    QStringList loaded_custom_shaders;
+    float loaded_fsr_sharpness = -1.0f;
+    QAtomicInteger<int> shader_hooks_changed = 0;
+    void reloadShaderHooks();
 
     struct {
         PFN_vkGetDeviceProcAddr vkGetDeviceProcAddr;

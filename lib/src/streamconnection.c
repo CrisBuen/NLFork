@@ -1007,6 +1007,11 @@ static ChiakiErrorCode stream_connection_send_big(ChiakiStreamConnection *stream
 	launch_spec.max_fps = session->connect_info.video_profile.max_fps;
 	launch_spec.codec = session->connect_info.video_profile.codec;
 	launch_spec.bw_kbps_sent = session->connect_info.video_profile.bitrate;
+	CHIAKI_LOGI(session->log, "Requesting video profile %ux%u @ %u fps, %u kbps, codec %s, yuv %s, encoder profile %s",
+			(unsigned int)launch_spec.width, (unsigned int)launch_spec.height,
+			chiaki_launchspec_max_fps((unsigned int)launch_spec.max_fps),
+			(unsigned int)launch_spec.bw_kbps_sent, chiaki_codec_name(launch_spec.codec),
+			chiaki_launchspec_yuv_coefficient(), chiaki_launchspec_video_encoder_profile());
 
 	union
 	{

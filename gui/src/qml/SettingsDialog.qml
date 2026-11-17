@@ -1036,6 +1036,77 @@ DialogView {
 
                     Label {
                         Layout.alignment: Qt.AlignRight
+                        text: qsTr("FSR Sharpness:")
+                    }
+
+                    C.Slider {
+                        Layout.preferredWidth: 250
+                        from: 0.00
+                        to: 1.00
+                        stepSize: 0.05
+                        value: Chiaki.settings.fsrSharpness
+                        // Changing it rebuilds the FSR shader, so a drag applies once the slider
+                        // is let go. Keyboard and controller steps never press it and apply directly.
+                        onMoved: {
+                            if (!pressed)
+                                Chiaki.settings.fsrSharpness = value;
+                        }
+                        onPressedChanged: {
+                            if (!pressed && Math.abs(value - Chiaki.settings.fsrSharpness) > 0.001)
+                                Chiaki.settings.fsrSharpness = value;
+                        }
+
+                        Label {
+                            anchors {
+                                left: parent.right
+                                verticalCenter: parent.verticalCenter
+                                leftMargin: 10
+                            }
+                            text: parent.value.toFixed(2)
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(0.90, used by the FSR upscaler)")
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("Custom Shaders:")
+                    }
+
+                    RowLayout {
+                        spacing: 10
+
+                        C.Button {
+                            text: qsTr("Add")
+                            onClicked: Chiaki.settings.addCustomShaders()
+                            Material.roundedScale: Material.SmallScale
+                        }
+
+                        C.Button {
+                            text: qsTr("Clear")
+                            enabled: Chiaki.settings.customShaders.length > 0
+                            onClicked: Chiaki.settings.clearCustomShaders()
+                            Material.roundedScale: Material.SmallScale
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        Layout.maximumWidth: 400
+                        elide: Text.ElideMiddle
+                        text: {
+                            const shaders = Chiaki.settings.customShaders;
+                            if (!shaders.length)
+                                return qsTr("(None)");
+                            return shaders.map(path => path.split("/").pop()).join(", ");
+                        }
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
                         text: qsTr("Custom Renderer Settings")
                         visible: Chiaki.window.videoPreset == ChiakiWindow.VideoPreset.Custom
                     }
@@ -1407,6 +1478,7 @@ DialogView {
                             case 2: rate = 6; break; // 540p
                             case 3: rate = 10; break; // 720p
                             case 4: rate = 15; break; // 1080p
+                            case 5: rate = 30; break; // 1440p
                             }
                             return rate;
                         }
@@ -1440,6 +1512,7 @@ DialogView {
                             case 2: rate = 6; break; // 540p
                             case 3: rate = 10; break; // 720p
                             case 4: rate = 15; break; // 1080p
+                            case 5: rate = 30; break; // 1440p
                             }
                             return rate;
                         }

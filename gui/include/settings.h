@@ -376,6 +376,18 @@ class Settings : public QObject
 		PlaceboPreset GetPlaceboPreset() const;
 		void SetPlaceboPreset(PlaceboPreset preset);
 
+		/**
+		 * @return sharpening applied by the FSR upscaler, 0.0 (softest) to 1.0 (sharpest)
+		 */
+		float GetFsrSharpness() const;
+		void SetFsrSharpness(float sharpness);
+
+		/**
+		 * @return paths of the mpv-style user shaders applied to the video, in order
+		 */
+		QStringList GetCustomShaders() const;
+		void SetCustomShaders(const QStringList &shaders);
+
 		RenderBackend GetRenderBackend() const;
 		void SetRenderBackend(RenderBackend backend);
 		// Set while Vulkan starts up and cleared once it has shown a frame, so a launch that

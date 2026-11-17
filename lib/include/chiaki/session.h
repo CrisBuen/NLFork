@@ -59,7 +59,9 @@ typedef enum {
 	CHIAKI_VIDEO_RESOLUTION_PRESET_360p = 1,
 	CHIAKI_VIDEO_RESOLUTION_PRESET_540p = 2,
 	CHIAKI_VIDEO_RESOLUTION_PRESET_720p = 3,
-	CHIAKI_VIDEO_RESOLUTION_PRESET_1080p = 4
+	CHIAKI_VIDEO_RESOLUTION_PRESET_1080p = 4,
+	// Tested on a PS5: it refuses this ("AvCap failed to initialize video"), so the GUI doesn't offer it
+	CHIAKI_VIDEO_RESOLUTION_PRESET_1440p = 5
 } ChiakiVideoResolutionPreset;
 
 typedef enum {

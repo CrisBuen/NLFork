@@ -94,6 +94,8 @@ class QmlSettings : public QObject
     Q_PROPERTY(uint streamMenuShortcut2 READ streamMenuShortcut2 WRITE setStreamMenuShortcut2 NOTIFY streamMenuShortcut2Changed)
     Q_PROPERTY(uint streamMenuShortcut3 READ streamMenuShortcut3 WRITE setStreamMenuShortcut3 NOTIFY streamMenuShortcut3Changed)
     Q_PROPERTY(uint streamMenuShortcut4 READ streamMenuShortcut4 WRITE setStreamMenuShortcut4 NOTIFY streamMenuShortcut4Changed)
+    Q_PROPERTY(float fsrSharpness READ fsrSharpness WRITE setFsrSharpness NOTIFY fsrSharpnessChanged)
+    Q_PROPERTY(QStringList customShaders READ customShaders NOTIFY customShadersChanged)
     Q_PROPERTY(int placeboUpscaler READ placeboUpscaler WRITE setPlaceboUpscaler NOTIFY placeboUpscalerChanged)
     Q_PROPERTY(int placeboPlaneUpscaler READ placeboPlaneUpscaler WRITE setPlaceboPlaneUpscaler NOTIFY placeboPlaneUpscalerChanged)
 	Q_PROPERTY(int placeboDownscaler READ placeboDownscaler WRITE setPlaceboDownscaler NOTIFY placeboDownscalerChanged)
@@ -364,6 +366,11 @@ public:
     float placeboAntiringingStrength() const;
     void setPlaceboAntiringingStrength(float strength);
 
+    float fsrSharpness() const;
+    void setFsrSharpness(float sharpness);
+
+    QStringList customShaders() const;
+
     bool placeboDebandEnabled() const;
     void setPlaceboDebandEnabled(bool enabled);
 
@@ -607,6 +614,8 @@ public:
     Q_INVOKABLE void exportPlaceboSettings();
     Q_INVOKABLE void importSettings();
     Q_INVOKABLE void importPlaceboSettings();
+    Q_INVOKABLE void addCustomShaders();
+    Q_INVOKABLE void clearCustomShaders();
     Q_INVOKABLE void deleteProfile(QString profile);
     Q_INVOKABLE QString stringForDpadShortcut() const;
     Q_INVOKABLE QString stringForStreamMenuShortcut() const;
@@ -698,6 +707,8 @@ signals:
     void iDROnFECFailureEnabledChanged();
     void currentProfileChanged();
     void profilesChanged();
+    void fsrSharpnessChanged();
+    void customShadersChanged();
     void placeboUpscalerChanged();
     void placeboPlaneUpscalerChanged();
     void placeboDownscalerChanged();

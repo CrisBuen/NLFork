@@ -5,6 +5,8 @@
 #include <chiaki/base64.h>
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 static const char launchspec_fmt[] =
 	"{"
@@ -48,8 +50,8 @@ static const char launchspec_fmt[] =
 			"\"language\":\"sp\","
 			"\"acceptButton\":\"X\","
 			"\"connectedControllers\":[\"xinput\",\"ds3\",\"ds4\"],"
-			"\"yuvCoefficient\":\"bt601\","
-			"\"videoEncoderProfile\":\"hw4.1\","
+			"\"yuvCoefficient\":\"%s\"," // yuv
+			"\"videoEncoderProfile\":\"%s\"," // encoder
 			"\"audioEncoderProfile\":\"audio1\"" // 6
 			"%s"
 		"},"
@@ -63,6 +65,41 @@ static const char launchspec_fmt[] =
 		"%s" // 8
 		"\"handshakeKey\":\"%s\"" // 9
 	"}";
+
+// Experimental overrides of what is requested from the console, set through environment variables
+// so they can be tried without rebuilding. Values are only accepted from a short safe character set.
+static const char *launchspec_env_token(const char *name, const char *fallback)
+{
+	const char *v = getenv(name);
+	if(!v || !*v || strlen(v) > 16)
+		return fallback;
+	for(const char *c = v; *c; c++)
+	{
+		if(!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || *c == '.' || *c == '_'))
+			return fallback;
+	}
+	return v;
+}
+
+CHIAKI_EXPORT unsigned int chiaki_launchspec_max_fps(unsigned int max_fps)
+{
+	const char *v = getenv("CHIAKI_LAUNCH_MAX_FPS");
+	if(!v)
+		return max_fps;
+	int fps = atoi(v);
+	return (fps >= 30 && fps <= 240) ? (unsigned int)fps : max_fps;
+}
+
+CHIAKI_EXPORT const char *chiaki_launchspec_yuv_coefficient(void)
+{
+	// bt709 is the colour matrix for HD video; the PS5 accepts it at 1080p60 (bt601 was the old default)
+	return launchspec_env_token("CHIAKI_LAUNCH_YUV", "bt709");
+}
+
+CHIAKI_EXPORT const char *chiaki_launchspec_video_encoder_profile(void)
+{
+	return launchspec_env_token("CHIAKI_LAUNCH_ENCODER_PROFILE", "hw4.1");
+}
 
 CHIAKI_EXPORT int chiaki_launchspec_format(char *buf, size_t buf_size, ChiakiLaunchSpec *launch_spec)
 {
@@ -86,8 +123,9 @@ CHIAKI_EXPORT int chiaki_launchspec_format(char *buf, size_t buf_size, ChiakiLau
 		extras[0] = extras[1] = extras[2] = "";
 
 	int written = snprintf(buf, buf_size, launchspec_fmt,
-			launch_spec->width, launch_spec->height, launch_spec->max_fps,
+			launch_spec->width, launch_spec->height, chiaki_launchspec_max_fps(launch_spec->max_fps),
 			launch_spec->bw_kbps_sent, launch_spec->mtu, launch_spec->rtt,
+			chiaki_launchspec_yuv_coefficient(), chiaki_launchspec_video_encoder_profile(),
 			extras[0], extras[1], extras[2], handshake_key_b64);
 	if(written < 0 || written >= buf_size)
 		return -1;

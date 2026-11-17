@@ -1496,7 +1496,7 @@ static ChiakiErrorCode ctrl_connect(ChiakiCtrl *ctrl)
 		CHIAKI_LOGI(session->log, "Ctrl got Server Type: %u", (unsigned int)server_type);
 		if(server_type == 0
 				&& session->connect_info.video_profile_auto_downgrade
-				&& session->connect_info.video_profile.height == 1080)
+				&& session->connect_info.video_profile.height >= 1080)
 		{
 			// regular PS4 doesn't support >= 1080p
 			CHIAKI_LOGI(session->log, "1080p was selected but server would not support it. Downgrading.");

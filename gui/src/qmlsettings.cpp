@@ -1964,6 +1964,8 @@ void QmlSettings::refreshAllKeys()
     emit packetLossReportedMaxChanged();
     emit currentProfileChanged();
     emit profilesChanged();
+    emit fsrSharpnessChanged();
+    emit customShadersChanged();
     refreshAllPlaceboKeys();
 }
 
@@ -2085,6 +2087,52 @@ void QmlSettings::exportPlaceboSettings()
     if(fileName.isEmpty())
         return;
     settings->ExportPlaceboSettings(std::move(fileName));
+}
+
+float QmlSettings::fsrSharpness() const
+{
+    return settings->GetFsrSharpness();
+}
+
+void QmlSettings::setFsrSharpness(float sharpness)
+{
+    settings->SetFsrSharpness(sharpness);
+    emit fsrSharpnessChanged();
+    emit placeboChanged();
+}
+
+QStringList QmlSettings::customShaders() const
+{
+    return settings->GetCustomShaders();
+}
+
+void QmlSettings::addCustomShaders()
+{
+    QStringList fileNames = QFileDialog::getOpenFileNames(QApplication::focusWidget(), tr("Choose Shaders To Apply To The Video"),
+                                                          QStandardPaths::writableLocation(QStandardPaths::DownloadLocation),
+                                                          tr("mpv shaders (*.glsl *.hook)"),
+                                                          nullptr,
+                                                          QFileDialog::DontUseNativeDialog);
+    if(fileNames.isEmpty())
+        return;
+    QStringList shaders = settings->GetCustomShaders();
+    for(const QString &fileName : fileNames)
+    {
+        if(!shaders.contains(fileName))
+            shaders.append(fileName);
+    }
+    settings->SetCustomShaders(shaders);
+    emit customShadersChanged();
+    emit placeboChanged();
+}
+
+void QmlSettings::clearCustomShaders()
+{
+    if(settings->GetCustomShaders().isEmpty())
+        return;
+    settings->SetCustomShaders(QStringList());
+    emit customShadersChanged();
+    emit placeboChanged();
 }
 
 void QmlSettings::importPlaceboSettings()

@@ -26,6 +26,9 @@ typedef struct chiaki_launch_spec_t
 } ChiakiLaunchSpec;
 
 CHIAKI_EXPORT int chiaki_launchspec_format(char *buf, size_t buf_size, ChiakiLaunchSpec *launch_spec);
+CHIAKI_EXPORT unsigned int chiaki_launchspec_max_fps(unsigned int max_fps);
+CHIAKI_EXPORT const char *chiaki_launchspec_yuv_coefficient(void);
+CHIAKI_EXPORT const char *chiaki_launchspec_video_encoder_profile(void);
 
 #ifdef __cplusplus
 }

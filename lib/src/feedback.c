@@ -240,6 +240,9 @@ static void history_recorder_buttons(HistoryRecorder *recorder, uint64_t buttons
 			CHIAKI_LOGE(recorder->log, "Feedback Sender failed to format button history event for button id %llu", (unsigned long long)button_id);
 			continue;
 		}
+		// Diagnostic: shows how long Options is really held, to look into hold-to-confirm prompts that don't complete
+		if(button_id == CHIAKI_CONTROLLER_BUTTON_OPTIONS)
+			CHIAKI_LOGI(recorder->log, "Feedback button Options %s", now ? "down" : "up");
 		history_recorder_push(recorder, &event);
 	}
 }
