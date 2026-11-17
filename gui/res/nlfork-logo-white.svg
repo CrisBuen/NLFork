@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="160" viewBox="0 0 500 160">
+  <!-- Logotipo NLFork en blanco (fondo de la pantalla principal). Letras dibujadas con trazos,
+       sin depender de fuentes instaladas. -->
+  <g fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14,130 V30 L84,130 V30"/>
+    <path d="M114,30 V130 H170"/>
+    <path d="M202,130 V30 H258 M202,80 H246"/>
+    <circle cx="314" cy="98" r="32"/>
+    <path d="M374,130 V66 M374,96 Q374,66 406,66 H414"/>
+    <path d="M440,30 V130 M484,66 L444,104 M458,92 L486,130"/>
+  </g>
+</svg>

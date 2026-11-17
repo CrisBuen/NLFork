@@ -96,6 +96,7 @@ class QmlSettings : public QObject
     Q_PROPERTY(uint streamMenuShortcut4 READ streamMenuShortcut4 WRITE setStreamMenuShortcut4 NOTIFY streamMenuShortcut4Changed)
     Q_PROPERTY(float fsrSharpness READ fsrSharpness WRITE setFsrSharpness NOTIFY fsrSharpnessChanged)
     Q_PROPERTY(QStringList customShaders READ customShaders NOTIFY customShadersChanged)
+    Q_PROPERTY(QString language READ language WRITE setLanguage NOTIFY languageChanged)
     Q_PROPERTY(int placeboUpscaler READ placeboUpscaler WRITE setPlaceboUpscaler NOTIFY placeboUpscalerChanged)
     Q_PROPERTY(int placeboPlaneUpscaler READ placeboPlaneUpscaler WRITE setPlaceboPlaneUpscaler NOTIFY placeboPlaneUpscalerChanged)
 	Q_PROPERTY(int placeboDownscaler READ placeboDownscaler WRITE setPlaceboDownscaler NOTIFY placeboDownscalerChanged)
@@ -368,6 +369,8 @@ public:
 
     float fsrSharpness() const;
     void setFsrSharpness(float sharpness);
+    QString language() const;
+    void setLanguage(const QString &language);
 
     QStringList customShaders() const;
 
@@ -616,6 +619,9 @@ public:
     Q_INVOKABLE void importPlaceboSettings();
     Q_INVOKABLE void addCustomShaders();
     Q_INVOKABLE void clearCustomShaders();
+    // One-click stream profiles: 1 = competitive (lowest latency), 2 = quality.
+    // Sets render preset, sharpening shader, PS5 local bitrate and frame delivery together.
+    Q_INVOKABLE void applyStreamProfile(int profile);
     Q_INVOKABLE void deleteProfile(QString profile);
     Q_INVOKABLE QString stringForDpadShortcut() const;
     Q_INVOKABLE QString stringForStreamMenuShortcut() const;
@@ -708,6 +714,7 @@ signals:
     void currentProfileChanged();
     void profilesChanged();
     void fsrSharpnessChanged();
+    void languageChanged();
     void customShadersChanged();
     void placeboUpscalerChanged();
     void placeboPlaneUpscalerChanged();

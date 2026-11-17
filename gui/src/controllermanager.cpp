@@ -4,7 +4,11 @@
 
 #include <QCoreApplication>
 #include <QByteArray>
+#include <QElapsedTimer>
+#include <QLoggingCategory>
 #include <QTimer>
+
+Q_DECLARE_LOGGING_CATEGORY(chiakiGui);
 
 #ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
 #include <SDL.h>
@@ -128,8 +132,13 @@ static QSet<QPair<uint16_t, uint16_t>> chiaki_steam_virtual_controller_ids({
 
 static ControllerManager *instance = nullptr;
 
-#define UPDATE_INTERVAL_MS 4
+// A DualSense on USB reports every 4 ms (measured: 250 Hz). Polling every 1 ms instead of every
+// 4 ms means a new report waits ~0.7 ms on average before it is read, instead of ~2 ms.
+#define UPDATE_INTERVAL_MS 1
 #define MOVE_CHECK_MS 1000
+// Hitch detector: controller input is read on the GUI thread, so if that thread is blocked the
+// input reaches the console late. Normal gaps are ~1-2 ms; only log while a controller is in use.
+#define CONTROLLER_POLL_HITCH_MS 25
 
 ControllerManager *ControllerManager::GetInstance()
 {
@@ -154,6 +163,7 @@ ControllerManager::ControllerManager(QObject *parent)
 		return;
 
 	auto timer = new QTimer(this);
+	timer->setTimerType(Qt::PreciseTimer);
 	connect(timer, &QTimer::timeout, this, &ControllerManager::HandleEvents);
 	timer->start(UPDATE_INTERVAL_MS);
 	auto move_timer = new QTimer(this);
@@ -243,6 +253,16 @@ void ControllerManager::creatingControllerMapping(bool creating_controller_mappi
 void ControllerManager::HandleEvents()
 {
 #ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
+	static QElapsedTimer poll_clock;
+	static qint64 last_poll_ms = -1;
+	if(!poll_clock.isValid())
+		poll_clock.start();
+	const qint64 now_ms = poll_clock.elapsed();
+	if(last_poll_ms >= 0 && !open_controllers.isEmpty() && now_ms - last_poll_ms >= CONTROLLER_POLL_HITCH_MS)
+		qCWarning(chiakiGui).nospace() << "[hitch] Controller input was not read for " << (now_ms - last_poll_ms)
+			<< " ms (GUI thread busy, input reached the console late)";
+	last_poll_ms = now_ms;
+
 	SDL_Event event;
 	while(SDL_PollEvent(&event))
 	{

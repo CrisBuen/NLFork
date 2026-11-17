@@ -16,6 +16,9 @@ DialogView {
     }
     property int selectedConsole: SettingsDialog.Console.PS5
     property bool quitControllerMapping: true
+    // Tab shown when the dialog opens (used to come back to Language after switching language)
+    property int initialTab: 0
+    Component.onCompleted: if (initialTab > 0) bar.currentIndex = initialTab
     id: dialog
     title: qsTr("Settings")
     header: qsTr("* Defaults in () to right of value or marked with (Default)")
@@ -99,6 +102,7 @@ DialogView {
         case 6: item = controllerMappingChange; break;
         case 7: item = firstRemoteFocusableItem(); break;
         case 8: item = profile; break;
+        case 9: item = languageRepeater.count > 0 ? languageRepeater.itemAt(0) : null; break;
         }
         if (item)
             item.forceActiveFocus(Qt.TabFocusReason);
@@ -114,6 +118,7 @@ DialogView {
         case 6: return controllersFlick;
         case 7: return remoteFlick;
         case 8: return configFlick;
+        case 9: return languageFlick;
         default: return null;
         }
     }
@@ -416,6 +421,36 @@ DialogView {
                     sourceSize: Qt.size(width, height)
                     source: "qrc:/icons/r1.svg"
                     visible: bar.currentIndex == 7
+                }
+                Image {
+                    anchors {
+                        left: config.right
+                        verticalCenter: parent.verticalCenter
+                        leftMargin: -15
+                    }
+                    width: 28
+                    height: 28
+                    sourceSize: Qt.size(width, height)
+                    source: "qrc:/icons/l1.svg"
+                    visible: bar.currentIndex == 9
+                }
+            }
+
+            TabButton {
+                text: qsTr("Language")
+                id: languageTab
+                focusPolicy: Qt.NoFocus
+                Image {
+                    anchors {
+                        right: languageTab.left
+                        verticalCenter: parent.verticalCenter
+                        rightMargin: -15
+                    }
+                    width: 28
+                    height: 28
+                    sourceSize: Qt.size(width, height)
+                    source: "qrc:/icons/r1.svg"
+                    visible: bar.currentIndex == 8
                 }
             }
         }
@@ -3125,7 +3160,7 @@ DialogView {
 
                     C.Button {
                         id: aboutButton
-                        text: qsTr("About %1-ng").arg(Qt.application.name)
+                        text: qsTr("About NLFork")
                         onClicked: aboutDialog.open()
                         Material.roundedScale: Material.SmallScale
                     }
@@ -3141,6 +3176,68 @@ DialogView {
                             checked: Chiaki.settings.logVerbose
                             lastInFocusChain: true
                             onToggled: Chiaki.settings.logVerbose = checked
+                        }
+                    }
+                }
+            }
+
+            Item {
+                // Language of the interface
+                Flickable {
+                    id: languageFlick
+                    anchors {
+                        fill: parent
+                        topMargin: 20
+                        bottomMargin: 20
+                    }
+                    clip: true
+                    contentWidth: Math.max(width, languageGrid.width)
+                    contentHeight: languageGrid.y + languageGrid.height
+                    flickableDirection: Flickable.AutoFlickIfNeeded
+
+                    ColumnLayout {
+                        id: languageGrid
+                        anchors {
+                            top: parent.top
+                            horizontalCenter: parent.horizontalCenter
+                            topMargin: 30
+                        }
+                        spacing: 16
+
+                        Label {
+                            text: qsTr("Interface language")
+                            font.pixelSize: 26
+                            font.bold: true
+                        }
+
+                        Label {
+                            text: qsTr("Changes apply right away. Your consoles and settings are kept.")
+                            opacity: 0.7
+                        }
+
+                        // available: a translation is included. English is the built-in language.
+                        Repeater {
+                            id: languageRepeater
+                            model: [
+                                { code: "en", name: "English", available: true },
+                                { code: "es", name: "Español", available: true }
+                            ]
+                            delegate: C.RadioButton {
+                                required property var modelData
+                                required property int index
+                                firstInFocusChain: index === 0
+                                lastInFocusChain: index === languageRepeater.count - 1
+                                text: modelData.available ? modelData.name : modelData.name + "  " + qsTr("(coming soon)")
+                                enabled: modelData.available
+                                checked: Chiaki.settings.language === modelData.code
+                                onToggled: {
+                                    if (!checked)
+                                        return;
+                                    Chiaki.settings.language = modelData.code;
+                                    Chiaki.window.applyLanguage(modelData.code);
+                                    Qt.callLater(() => root.reloadSettingsDialog(bar.currentIndex));
+                                }
+                            }
                         }
                     }
                 }
@@ -3186,7 +3283,7 @@ DialogView {
             parent: Overlay.overlay
             x: Math.round((root.width - width) / 2)
             y: Math.round((root.height - height) / 2)
-            title: qsTr("About %1-ng").arg(Qt.application.name)
+            title: qsTr("About NLFork")
             modal: true
             standardButtons: Dialog.Ok
             Material.roundedScale: Material.MediumScale
@@ -3202,14 +3299,15 @@ DialogView {
                     Layout.preferredWidth: 200
                     fillMode: Image.PreserveAspectFit
                     verticalAlignment: Image.AlignTop
-                    source: "qrc:icons/chiaking-logo.svg"
+                    source: "qrc:icons/nlfork-logo.svg"
                 }
 
                 Label {
                     Layout.preferredWidth: 400
                     verticalAlignment: Text.AlignTop
                     wrapMode: Text.Wrap
-                    text: "<h1>chiaki-ng</h1> by Street Pea, version %1
+                    text: "<h1>NLFork</h1> version %1
+                        <h2>Based on chiaki-ng</h2> by Street Pea
                         <h2>Fork of Chiaki</h2> by Florian Markl at version 2.1.1
 
                         <p>This program is free software: you can redistribute it and/or modify

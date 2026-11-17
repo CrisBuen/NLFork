@@ -12,6 +12,8 @@
 #include <QCoreApplication>
 #include <QProcess>
 
+Q_DECLARE_LOGGING_CATEGORY(chiakiGui);
+
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/hwcontext.h>
@@ -2101,6 +2103,19 @@ void QmlSettings::setFsrSharpness(float sharpness)
     emit placeboChanged();
 }
 
+QString QmlSettings::language() const
+{
+    return settings->GetLanguage();
+}
+
+void QmlSettings::setLanguage(const QString &language)
+{
+    if(language == settings->GetLanguage())
+        return;
+    settings->SetLanguage(language);
+    emit languageChanged();
+}
+
 QStringList QmlSettings::customShaders() const
 {
     return settings->GetCustomShaders();
@@ -2132,6 +2147,45 @@ void QmlSettings::clearCustomShaders()
         return;
     settings->SetCustomShaders(QStringList());
     emit customShadersChanged();
+    emit placeboChanged();
+}
+
+void QmlSettings::applyStreamProfile(int profile)
+{
+    // Keep these values in sync with the profile buttons in MainView.qml
+    PlaceboPreset preset;
+    QStringList shaders;
+    unsigned int bitrate;
+    switch(profile)
+    {
+        case 1: // Competitivo: FSRCNNX 8 (~1.7 ms in chiaki), no extra shader
+            preset = PlaceboPreset::HighQualitySpatial;
+            bitrate = 40000;
+            break;
+        case 2: // Calidad: FSRCNNX 16 (~4 ms in chiaki) + soft CAS sharpening after upscaling
+                // + luma-guided chroma upscaling (~0.1-0.2 ms)
+            preset = PlaceboPreset::HighQualityAdvancedSpatial;
+            shaders << QStringLiteral(":/shaders/CAS-suave.glsl") << QStringLiteral(":/shaders/color-nitido.glsl");
+            bitrate = 100000;
+            break;
+        default:
+            qCWarning(chiakiGui) << "Unknown stream profile" << profile;
+            return;
+    }
+    qCInfo(chiakiGui) << "Applying stream profile" << profile;
+
+    settings->SetPlaceboPreset(preset);
+    settings->SetCustomShaders(shaders);
+    settings->SetBitrateLocalPS5(bitrate);
+    // Both profiles show each frame as soon as it is decoded
+    settings->SetDirectFrameMapping(true);
+    settings->SetVSyncEnabled(false);
+
+    emit videoPresetChanged();
+    emit customShadersChanged();
+    emit bitrateLocalPS5Changed();
+    emit directFrameMappingChanged();
+    emit vSyncEnabledChanged();
     emit placeboChanged();
 }
 

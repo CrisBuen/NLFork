@@ -64,8 +64,52 @@ static const QMap<QString, CLICommand> cli_commands = {
 int RunStream(QGuiApplication &app, const StreamSessionConnectInfo &connect_info);
 int RunMain(QGuiApplication &app, Settings *settings, bool exit_app_on_stream_exit);
 
+#ifdef _WIN32
+#include <chiaki/thread.h>
+
+// Called by the library at the start of each of its threads, on that thread.
+// The thread that receives the stream and the one that sends controller input get ahead of
+// normal applications, so a busy PC is less likely to make the kernel drop stream packets or
+// hold back a button press. They also join the MMCSS "Games" class, the scheduler class
+// Windows gives games and pro audio.
+static void WindowsThreadPriority(ChiakiThreadName name, void *)
+{
+	int priority;
+	const char *label;
+	switch(name)
+	{
+		case CHIAKI_THREAD_NAME_TAKION:
+			priority = THREAD_PRIORITY_TIME_CRITICAL;
+			label = "stream receive";
+			break;
+		case CHIAKI_THREAD_NAME_FEEDBACK:
+			priority = THREAD_PRIORITY_HIGHEST;
+			label = "controller input";
+			break;
+		default:
+			return;
+	}
+	bool priority_set = SetThreadPriority(GetCurrentThread(), priority) != 0;
+
+	// avrt.dll is loaded at runtime so nothing extra has to be linked
+	typedef HANDLE (WINAPI *AvSetMmThreadCharacteristicsWFn)(LPCWSTR, LPDWORD);
+	static AvSetMmThreadCharacteristicsWFn av_set = []() -> AvSetMmThreadCharacteristicsWFn {
+		HMODULE avrt = LoadLibraryW(L"avrt.dll");
+		return avrt ? reinterpret_cast<AvSetMmThreadCharacteristicsWFn>(GetProcAddress(avrt, "AvSetMmThreadCharacteristicsW")) : nullptr;
+	}();
+	DWORD task_index = 0;
+	bool mmcss_set = av_set && av_set(L"Games", &task_index) != nullptr;
+
+	qInfo("Thread priority for %s: %s, MMCSS Games: %s", label,
+		priority_set ? "raised" : "unchanged", mmcss_set ? "joined" : "not joined");
+}
+#endif
+
 int real_main(int argc, char *argv[])
 {
+#ifdef _WIN32
+	chiaki_thread_set_affinity_cb(WindowsThreadPriority, nullptr);
+#endif
 	qRegisterMetaType<DiscoveryHost>();
 	qRegisterMetaType<RegisteredHost>();
 	qRegisterMetaType<HostMAC>();
@@ -73,10 +117,13 @@ int real_main(int argc, char *argv[])
 	qRegisterMetaType<ChiakiRegistEventType>();
 	qRegisterMetaType<ChiakiLogLevel>();
 
+	// The organization and application names decide where settings, registered consoles and logs
+	// are stored (HKCU\Software\Chiaki\Chiaki, %APPDATA%\Chiaki\Chiaki), so they stay "Chiaki".
+	// Only the name shown to the user is NLFork.
 	QGuiApplication::setOrganizationName("Chiaki");
 	QGuiApplication::setApplicationName("Chiaki");
 	QGuiApplication::setApplicationVersion(CHIAKI_VERSION);
-	QGuiApplication::setApplicationDisplayName("chiaki-ng");
+	QGuiApplication::setApplicationDisplayName("NLFork");
 #if defined(Q_OS_MACOS)
 	// Use a plain CAMetalLayer for Vulkan windows. Qt's own layer presents in step with each
 	// live resize, but our swapchain presents from the render thread, so every resize step
@@ -129,7 +176,7 @@ int real_main(int argc, char *argv[])
 		return 1;
 	}
 
-    SDL_SetHint(SDL_HINT_APP_NAME, "chiaki-ng");
+    SDL_SetHint(SDL_HINT_APP_NAME, "NLFork");
 
 	if(SDL_Init(SDL_INIT_AUDIO) < 0)
 	{
@@ -146,7 +193,7 @@ int real_main(int argc, char *argv[])
 #ifdef Q_OS_MACOS
 	QGuiApplication::setWindowIcon(QIcon(":/icons/chiaking_macos.svg"));
 #else
-	QGuiApplication::setWindowIcon(QIcon(":/icons/chiaking.svg"));
+	QGuiApplication::setWindowIcon(QIcon(":/icons/nlfork.svg"));
 #endif
 
 	QCommandLineParser parser;
@@ -204,7 +251,7 @@ int real_main(int argc, char *argv[])
 		settings.SetCurrentProfile(parser.value(profile_option));
 	Settings alt_settings(parser.isSet(profile_option) ? "" : settings.GetCurrentProfile());
 	if(!settings.GetCurrentProfile().isEmpty())
-		QGuiApplication::setApplicationDisplayName(QString("chiaki-ng:%1").arg(settings.GetCurrentProfile()));
+		QGuiApplication::setApplicationDisplayName(QString("NLFork:%1").arg(settings.GetCurrentProfile()));
 	bool use_alt_settings = false;
 	if(!parser.isSet(profile_option))
 		use_alt_settings = true;

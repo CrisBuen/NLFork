@@ -147,6 +147,9 @@ public:
     void setVideoPreset(VideoPreset mode);
 
     Q_INVOKABLE void grabInput();
+    // Switches the interface language at once ("en" = built-in English). Returns false and stays
+    // in English when there is no translation for the language.
+    Q_INVOKABLE bool applyLanguage(const QString &language);
     Q_INVOKABLE void releaseInput();
     Q_INVOKABLE void requestOverlayUpdate();
     Q_INVOKABLE void setOverlayInteractionActive(bool active);
@@ -416,6 +419,7 @@ private:
     QOpenGLContext *qt_gl_context = {};
     QOffscreenSurface *qt_gl_offscreen_surface = {};
     QQmlEngine *qml_engine = {};
+    class QTranslator *translator = {};
     QQuickWindow *quick_window = {};
     QQuickRenderControl *quick_render = {};
     QQuickItem *quick_item = {};

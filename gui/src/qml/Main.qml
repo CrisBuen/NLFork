@@ -11,8 +11,11 @@ Item {
     property bool initialAsk: false
     readonly property bool preferSeparateStreamSettingsWindows: Chiaki.window.runtimeRendererBackend === 1 && Chiaki.session
     property bool useSeparateStreamSettingsWindows: false
+    // NLFork theme: deep blue surfaces instead of Material's default grey and lavender bars
     Material.theme: Material.Dark
     Material.accent: "#00a7ff"
+    Material.primary: "#111a33"
+    Material.background: "#0b1124"
 
     function controllerButton(name) {
         let type = "deck";
@@ -169,7 +172,7 @@ Item {
 
     function showRendererFallbackDialog(reason) {
         showInfoDialog(qsTr("Renderer Fallback"),
-                       qsTr("Vulkan renderer is unavailable and chiaki-ng switched to OpenGL.\n\nReason: %1").arg(reason));
+                       qsTr("Vulkan renderer is unavailable and NLFork switched to OpenGL.\n\nReason: %1").arg(reason));
     }
 
     function showRemindDialog(title, text, remotePlay, callback) {
@@ -188,6 +191,12 @@ Item {
 
     function showSettingsDialog() {
         stack.push(settingsDialogComponent);
+    }
+
+    // After the interface language changes, open settings is built again: combo boxes whose
+    // list of texts was retranslated in place would otherwise fall back to their first entry
+    function reloadSettingsDialog(tab) {
+        stack.replace(stack.currentItem, settingsDialogComponent, {initialTab: tab}, StackView.Immediate);
     }
 
     function showDisplaySettingsDialog() {

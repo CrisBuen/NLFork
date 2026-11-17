@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080" preserveAspectRatio="none">
+  <!-- Fondo de la pantalla principal de NLFork: azul profundo con dos brillos suaves.
+       Se dibuja una sola vez al tamano de la ventana (sin efectos en tiempo real). -->
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1736"/>
+      <stop offset="0.55" stop-color="#081024"/>
+      <stop offset="1" stop-color="#04060d"/>
+    </linearGradient>
+    <radialGradient id="glowTop" cx="420" cy="-120" r="1100" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2a6cff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#2a6cff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowBottom" cx="1700" cy="1150" r="800" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8a5cff" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#8a5cff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#base)"/>
+  <rect width="1920" height="1080" fill="url(#glowTop)"/>
+  <rect width="1920" height="1080" fill="url(#glowBottom)"/>
+</svg>

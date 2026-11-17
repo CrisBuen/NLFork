@@ -44,6 +44,11 @@ extern "C" {
 #include <QVulkanInstance>
 #include <QQuickItem>
 #include <QQmlEngine>
+#include <QTranslator>
+#include <QHash>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
 #include <QQmlComponent>
 #include <QQuickRenderTarget>
 #include <QQuickRenderControl>
@@ -2796,6 +2801,76 @@ void QmlMainWindow::setKeepVideo(bool keep)
     emit keepVideoChanged();
 }
 
+namespace {
+// Translations are plain JSON files (":/i18n/nlfork_<lang>.json": English source text ->
+// translation), so no Qt Linguist tools are needed to build them. The context (QML file or C++
+// class) is ignored: the same English text is translated the same way everywhere.
+class JsonTranslator : public QTranslator
+{
+public:
+    using QTranslator::QTranslator;
+
+    bool loadJson(const QString &path)
+    {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly))
+            return false;
+        QJsonParseError error;
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &error);
+        if (error.error != QJsonParseError::NoError || !doc.isObject()) {
+            qCWarning(chiakiGui) << "Invalid translation file" << path << error.errorString();
+            return false;
+        }
+        const QJsonObject obj = doc.object();
+        for (auto it = obj.begin(); it != obj.end(); ++it) {
+            if (!it.key().startsWith(QLatin1Char('_')) && it.value().isString())
+                strings.insert(it.key(), it.value().toString());
+        }
+        return !strings.isEmpty();
+    }
+
+    QString translate(const char *, const char *source_text, const char * = nullptr, int = -1) const override
+    {
+        if (!source_text)
+            return QString();
+        // A null QString means "no translation": Qt then shows the English text
+        return strings.value(QString::fromUtf8(source_text));
+    }
+
+    bool isEmpty() const override { return strings.isEmpty(); }
+
+private:
+    QHash<QString, QString> strings;
+};
+}
+
+bool QmlMainWindow::applyLanguage(const QString &language)
+{
+    if (translator) {
+        QCoreApplication::removeTranslator(translator);
+        delete translator;
+        translator = nullptr;
+    }
+    bool ok = true;
+    // English is the language of the source strings, so it needs no translation file
+    if (!language.isEmpty() && language != QStringLiteral("en")) {
+        auto *t = new JsonTranslator(this);
+        const QString file = QStringLiteral(":/i18n/nlfork_%1.json").arg(language);
+        if (t->loadJson(file)) {
+            QCoreApplication::installTranslator(t);
+            translator = t;
+            qCInfo(chiakiGui) << "Interface language:" << language;
+        } else {
+            delete t;
+            ok = false;
+            qCWarning(chiakiGui) << "No translation for language" << language << "- using English";
+        }
+    }
+    if (qml_engine)
+        qml_engine->retranslate();
+    return ok;
+}
+
 void QmlMainWindow::grabInput()
 {
     setCursor(Qt::ArrowCursor);
@@ -2922,12 +2997,13 @@ void QmlMainWindow::setSettings(Settings *new_settings)
     settings = new_settings;
     // Each profile has its own FSR sharpness and custom shaders
     shader_hooks_changed.storeRelaxed(1);
+    applyLanguage(settings->GetLanguage());
     QString profile = settings->GetCurrentProfile();
     qCCritical(chiakiGui) << "Current Profile: " << profile;
     if(profile.isEmpty())
-        QGuiApplication::setApplicationDisplayName("chiaki-ng");
+        QGuiApplication::setApplicationDisplayName("NLFork");
     else
-        QGuiApplication::setApplicationDisplayName(QString("chiaki-ng:%1").arg(profile));
+        QGuiApplication::setApplicationDisplayName(QString("NLFork:%1").arg(profile));
     this->setTitle(QGuiApplication::applicationDisplayName());
 }
 
@@ -3052,6 +3128,11 @@ void QmlMainWindow::presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, q
     const qint64 present_entry_us = static_cast<qint64>(chiaki_time_now_monotonic_us());
     if (decoder_delivery_us > 0 && present_entry_us >= decoder_delivery_us) {
         const qint64 gui_handoff_us = present_entry_us - decoder_delivery_us;
+        // Always logged (rare): the GUI thread was blocked, e.g. compiling shaders, so the
+        // picture froze even though the network and the decoder were fine.
+        if (gui_handoff_us >= 50000)
+            qCWarning(chiakiGui).nospace() << "[hitch] Decoded frame waited " << gui_handoff_us / 1000
+                                           << " ms for the GUI thread (render stall)";
         if (gui_handoff_us >= 12000) {
             CHIAKI_NOISY_DEBUG().nospace()
                 << "[decode] gui_handoff_outlier_us=" << gui_handoff_us
@@ -4998,7 +5079,7 @@ void QmlMainWindow::init(Settings *settings, bool exit_app_on_stream_exit)
             // The last launch closed before Vulkan showed a frame, which is how a crash inside the
             // Vulkan driver or a third-party Vulkan layer looks; keep OpenGL until switched back
             settings->SetRenderBackend(RenderBackend::OpenGL);
-            fallbackToOpenGL(tr("chiaki-ng closed while starting Vulkan last time, so it now uses OpenGL. "
+            fallbackToOpenGL(tr("NLFork closed while starting Vulkan last time, so it now uses OpenGL. "
                                 "You can switch back under Settings > Video > Renderer Backend."));
             goto renderer_backend_ready;
         }
@@ -5199,6 +5280,7 @@ renderer_backend_ready:
     if (!qml_engine->incubationController())
         qml_engine->setIncubationController(quick_window->incubationController());
     connect(qml_engine, &QQmlEngine::quit, this, &QWindow::close);
+    applyLanguage(settings->GetLanguage());
 
     backend = new QmlBackend(settings, this);
     stats_overlay_widget = new StatsOverlayWidget(this, backend);
@@ -6091,7 +6173,7 @@ void QmlMainWindow::createSwapchain()
             if (surface_renderable && failures >= 60 && failure_duration_us >= 3000000) {
                 handleVulkanRendererFallback(
                     tr("Vulkan renderer stalled"),
-                    tr("The Vulkan surface could not recover. Chiaki-ng will relaunch with OpenGL for this run only."),
+                    tr("The Vulkan surface could not recover. NLFork will relaunch with OpenGL for this run only."),
                     tr("Vulkan surface creation failed repeatedly while the window was visible. OpenGL is being used for this launch only."));
             } else {
                 swapchain_recreate_pending.storeRelease(1);
@@ -6489,7 +6571,7 @@ void QmlMainWindow::handleVulkanDeviceLost(const QString &reason)
 {
     handleVulkanRendererFallback(
         tr("Vulkan device lost"),
-        tr("The Vulkan renderer stopped responding. Chiaki-ng will relaunch with OpenGL for this run only.\n\nReason: %1").arg(reason),
+        tr("The Vulkan renderer stopped responding. NLFork will relaunch with OpenGL for this run only.\n\nReason: %1").arg(reason),
         tr("Vulkan device was lost. OpenGL is being used for this launch only. Reason: %1").arg(reason));
 }
 
@@ -7098,7 +7180,7 @@ void QmlMainWindow::render()
             if (surface_renderable && failures >= 60 && failure_duration_us >= 3000000) {
                 handleVulkanRendererFallback(
                     tr("Vulkan renderer stalled"),
-                    tr("The Vulkan swapchain could not recover. Chiaki-ng will relaunch with OpenGL for this run only."),
+                    tr("The Vulkan swapchain could not recover. NLFork will relaunch with OpenGL for this run only."),
                     tr("Vulkan swapchain failed repeatedly while the window was visible. OpenGL is being used for this launch only."));
             } else {
                 swapchain_recreate_pending.storeRelease(1);

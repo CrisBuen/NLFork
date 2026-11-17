@@ -260,6 +260,10 @@ class Settings : public QObject
 		void SetLogVerbose(bool enabled)		{ settings.setValue("settings/log_verbose", enabled); }
 		bool GetLogSanitize() const            { return settings.value("settings/log_sanitize", true).toBool(); }
 		void SetLogSanitize(bool enabled)      { settings.setValue("settings/log_sanitize", enabled); }
+		// Interface language code ("en", "es", ...). English is built in; others need a translation.
+		QString GetLanguage() const            { return settings.value("settings/language", "en").toString(); }
+		void SetLanguage(const QString &language) { settings.setValue("settings/language", language); }
+
 		bool GetVSyncEnabled() const           { return settings.value("settings/vsync", false).toBool(); }
 		void SetVSyncEnabled(bool enabled)     { settings.setValue("settings/vsync", enabled); }
 		uint32_t GetLogLevelMask();

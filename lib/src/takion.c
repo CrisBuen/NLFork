@@ -39,12 +39,32 @@
 // VERY similar to SCTP, see RFC 4960
 
 #define TAKION_A_RWND 0x19000
+// The kernel's receive buffer for the stream socket. It used to be a_rwnd (100 KiB), which a
+// keyframe arriving at line speed fills in under a millisecond: if the receive thread is late
+// by that much, the kernel drops the rest, FEC fails and the picture stalls until recovered.
+// The window advertised to the console stays a_rwnd.
+#define TAKION_SOCKET_RCVBUF (4 * 1024 * 1024)
+
+static void takion_log_rcvbuf(ChiakiTakion *takion)
+{
+	int actual = 0;
+	socklen_t len = sizeof(actual);
+	if(getsockopt(takion->sock, SOL_SOCKET, SO_RCVBUF, (CHIAKI_SOCKET_BUF_TYPE)&actual, &len) == 0)
+		CHIAKI_LOGI(takion->log, "Takion socket receive buffer: %d bytes", actual);
+}
 #define TAKION_OUTBOUND_STREAMS 0x64
 #define TAKION_INBOUND_STREAMS 0x64
 
 #define TAKION_REORDER_QUEUE_SIZE_EXP 4 // => 16 entries
 #define TAKION_AV_VIDEO_REORDER_QUEUE_SIZE_EXP 6 // => 64 entries
 #define TAKION_AV_REORDER_TIMEOUT_US 16000 // ~1 frame at 60fps
+
+// Hitch detector, only active once video is flowing. A "network gap" is a time with no packet
+// from the console at all (Wi-Fi or console side). A "receive stall" is this thread being busy
+// handling one packet (decoder submit or a callback blocking): packets then pile up in the
+// kernel buffer and arrive late, or are dropped once it is full.
+#define TAKION_HITCH_NETWORK_GAP_US 60000
+#define TAKION_HITCH_RECV_STALL_US 20000
 
 #define TAKION_POSTPONE_PACKETS_SIZE 32
 
@@ -261,7 +281,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			CHIAKI_LOGE(takion->log, "Takion had problem reading extra messages from socket using PSN Connection with error: " CHIAKI_SOCKET_ERROR_FMT, CHIAKI_SOCKET_ERROR_VALUE);
 			goto error_sock;
 		}
-		const int rcvbuf_val = takion->a_rwnd;
+		const int rcvbuf_val = TAKION_SOCKET_RCVBUF;
 		int r = setsockopt(takion->sock, SOL_SOCKET, SO_RCVBUF, (const CHIAKI_SOCKET_BUF_TYPE)&rcvbuf_val, sizeof(rcvbuf_val));
 		if(r < 0)
 		{
@@ -269,6 +289,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			ret = CHIAKI_ERR_NETWORK;
 			goto error_sock;
 		}
+		takion_log_rcvbuf(takion);
 
 #if defined(__APPLE__) && TARGET_OS_OSX
 		SInt32 majorVersion;
@@ -349,7 +370,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			ret = CHIAKI_ERR_NETWORK;
 			goto error_pipe;
 		}
-		const int rcvbuf_val = takion->a_rwnd;
+		const int rcvbuf_val = TAKION_SOCKET_RCVBUF;
 		int r = setsockopt(takion->sock, SOL_SOCKET, SO_RCVBUF, (const CHIAKI_SOCKET_BUF_TYPE)&rcvbuf_val, sizeof(rcvbuf_val));
 		if(r < 0)
 		{
@@ -357,6 +378,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_takion_connect(ChiakiTakion *takion, Chiaki
 			ret = CHIAKI_ERR_NETWORK;
 			goto error_sock;
 		}
+		takion_log_rcvbuf(takion);
 		if(info->ip_dontfrag)
 		{
 #if defined(__APPLE__) && TARGET_OS_OSX
@@ -1129,6 +1151,10 @@ static void *takion_thread_func(void *user)
 
 	bool crypt_available = takion->gkcrypt_remote ? true : false;
 
+	int64_t hitch_last_packet_us = 0;
+	unsigned hitch_gap_count = 0, hitch_stall_count = 0;
+	int64_t hitch_gap_max_us = 0, hitch_stall_max_us = 0;
+
 	while(true)
 	{
 		if(takion->enable_crypt && !crypt_available && takion->gkcrypt_remote)
@@ -1192,6 +1218,18 @@ static void *takion_thread_func(void *user)
 			}
 			break;
 		}
+		int64_t recv_us = chiaki_time_now_monotonic_us();
+		if(takion->video_queue_initialized && hitch_last_packet_us
+			&& recv_us - hitch_last_packet_us >= TAKION_HITCH_NETWORK_GAP_US)
+		{
+			int64_t gap_us = recv_us - hitch_last_packet_us;
+			hitch_gap_count++;
+			if(gap_us > hitch_gap_max_us)
+				hitch_gap_max_us = gap_us;
+			CHIAKI_LOGW(takion->log, "[hitch] No packets from the console for %lld ms (network or Wi-Fi gap)",
+				(long long)(gap_us / 1000));
+		}
+
 		uint8_t *resized_buf = realloc(buf, received_size);
 		if(!resized_buf)
 		{
@@ -1199,7 +1237,24 @@ static void *takion_thread_func(void *user)
 			continue;
 		}
 		takion_handle_packet(takion, resized_buf, received_size);
+
+		int64_t handled_us = chiaki_time_now_monotonic_us();
+		if(takion->video_queue_initialized && handled_us - recv_us >= TAKION_HITCH_RECV_STALL_US)
+		{
+			int64_t stall_us = handled_us - recv_us;
+			hitch_stall_count++;
+			if(stall_us > hitch_stall_max_us)
+				hitch_stall_max_us = stall_us;
+			CHIAKI_LOGW(takion->log, "[hitch] Receive thread busy for %lld ms handling one packet (decoder or callback stall)",
+				(long long)(stall_us / 1000));
+		}
+		// Measure the next gap from here, so a stall is not counted again as a network gap
+		hitch_last_packet_us = handled_us;
 	}
+
+	CHIAKI_LOGI(takion->log, "[hitch] Summary: %u network gap(s) >= %d ms (max %lld ms), %u receive stall(s) >= %d ms (max %lld ms)",
+		hitch_gap_count, TAKION_HITCH_NETWORK_GAP_US / 1000, (long long)(hitch_gap_max_us / 1000),
+		hitch_stall_count, TAKION_HITCH_RECV_STALL_US / 1000, (long long)(hitch_stall_max_us / 1000));
 
 	// Other threads (e.g. the heartbeat or an IDR request) may still send data, so stop them from using the send buffer first
 	chiaki_mutex_lock(&takion->send_buffer_active_mutex);

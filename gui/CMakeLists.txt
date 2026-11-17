@@ -93,6 +93,10 @@ add_executable(chiaki WIN32
 		${SOURCE_FILES}
 )
 target_include_directories(chiaki PRIVATE include)
+if(WIN32)
+	# The app is shown as NLFork; the CMake target stays "chiaki"
+	set_target_properties(chiaki PROPERTIES OUTPUT_NAME NLFork)
+endif()
 
 add_library(placebo-libav-impl src/libav_impl.c)
 target_link_libraries(placebo-libav-impl PkgConfig::LIBPLACEBO FFMPEG::avcodec FFMPEG::avutil FFMPEG::avformat)
