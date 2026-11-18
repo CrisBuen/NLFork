@@ -122,7 +122,7 @@ int real_main(int argc, char *argv[])
 	// Only the name shown to the user is NLFork.
 	QGuiApplication::setOrganizationName("Chiaki");
 	QGuiApplication::setApplicationName("Chiaki");
-	QGuiApplication::setApplicationVersion(CHIAKI_VERSION);
+	QGuiApplication::setApplicationVersion(NLFORK_VERSION);
 	QGuiApplication::setApplicationDisplayName("NLFork");
 #if defined(Q_OS_MACOS)
 	// Use a plain CAMetalLayer for Vulkan windows. Qt's own layer presents in step with each

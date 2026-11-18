@@ -99,7 +99,7 @@ DialogView {
         case 3: item = audioOutDevice; break;
         case 4: item = registerNewButton; break;
         case 5: item = resetAllKeys; break;
-        case 6: item = controllerMappingChange; break;
+        case 6: item = controllerRemapButton; break;
         case 7: item = firstRemoteFocusableItem(); break;
         case 8: item = profile; break;
         case 9: item = languageRepeater.count > 0 ? languageRepeater.itemAt(0) : null; break;
@@ -2671,8 +2671,22 @@ DialogView {
                         spacing: 10
                         C.Button {
                             Layout.alignment: Qt.AlignHCenter
-                            id: controllerMappingChange
+                            id: controllerRemapButton
                             firstInFocusChain: true
+                            text: qsTr("Controller buttons and touchpad…")
+                            font.pixelSize: 18
+                            Material.background: visualFocus ? Material.accent : "#16305a"
+                            onClicked: root.showControllerRemapDialog()
+                        }
+                        Label {
+                            Layout.alignment: Qt.AlignHCenter
+                            Layout.bottomMargin: 10
+                            text: qsTr("Remap any controller (Xbox, generic, back paddles) and choose how to press the touchpad")
+                            opacity: 0.7
+                        }
+                        C.Button {
+                            Layout.alignment: Qt.AlignHCenter
+                            id: controllerMappingChange
                             text: "Change Controller Mapping"
                             onClicked: controllerMappingDialog.show({
                                 reset: false
@@ -3180,6 +3194,19 @@ DialogView {
                         Material.roundedScale: Material.SmallScale
                     }
 
+                    C.Button {
+                        id: checkUpdatesButton
+                        text: Chiaki.updater && Chiaki.updater.updateAvailable
+                              ? qsTr("Install update %1").arg(Chiaki.updater.latestVersion)
+                              : qsTr("Check for updates")
+                        Material.roundedScale: Material.SmallScale
+                        onClicked: {
+                            if (!Chiaki.updater.updateAvailable)
+                                Chiaki.updater.checkForUpdates();
+                            root.showUpdateDialog();
+                        }
+                    }
+
                     C.CheckBox {
                         text: qsTr("Sanitize Logs (checked)")
                         checked: Chiaki.settings.logSanitize
@@ -3321,7 +3348,7 @@ DialogView {
                     Layout.preferredWidth: 400
                     verticalAlignment: Text.AlignTop
                     wrapMode: Text.Wrap
-                    text: "<h1>NLFork</h1> version %1
+                    text: "<h1>NLFork</h1> version %1 (based on chiaki-ng 1.10.1)
                         <h2>Based on chiaki-ng</h2> by Street Pea
                         <h2>Fork of Chiaki</h2> by Florian Markl at version 2.1.1
 

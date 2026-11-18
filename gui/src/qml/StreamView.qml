@@ -577,8 +577,25 @@ Item {
                 checked: Chiaki.settings.showStreamStats
                 onToggled: Chiaki.settings.showStreamStats = !Chiaki.settings.showStreamStats
                 KeyNavigation.left: muteButton
-                KeyNavigation.right: zoomButton
+                KeyNavigation.right: controllerRemapButton
                 Keys.onReturnPressed: toggled()
+                Keys.onEscapePressed: menuController.close()
+            }
+
+            ToolButton {
+                id: controllerRemapButton
+                Layout.rightMargin: 20
+                text: qsTr("Controller")
+                padding: 10
+                checkable: false
+                icon.source: "qrc:/icons/settings-20px.svg";
+                onClicked: root.openControllerRemap()
+                KeyNavigation.left: statsButton
+                KeyNavigation.right: zoomButton
+                Keys.onReturnPressed: {
+                    menuController.close();
+                    clicked();
+                }
                 Keys.onEscapePressed: menuController.close()
             }
 
@@ -589,7 +606,7 @@ Item {
                 checkable: true
                 checked: Chiaki.window.videoMode == ChiakiWindow.VideoMode.Zoom
                 onToggled: Chiaki.window.videoMode = Chiaki.window.videoMode == ChiakiWindow.VideoMode.Zoom ? ChiakiWindow.VideoMode.Normal : ChiakiWindow.VideoMode.Zoom
-                KeyNavigation.left: statsButton
+                KeyNavigation.left: controllerRemapButton
                 KeyNavigation.right: {
                     if(Chiaki.window.videoMode == ChiakiWindow.VideoMode.Zoom)
                         zoomFactor
@@ -928,6 +945,10 @@ Item {
         onDisplaySettingsRequested: {
             menuController.close();
             root.openDisplaySettings();
+        }
+        onControllerRemapRequested: {
+            menuController.close();
+            root.openControllerRemap();
         }
         onPlaceboSettingsRequested: {
             menuController.close();

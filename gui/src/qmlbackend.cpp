@@ -295,6 +295,11 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window)
     qmlRegisterUncreatableType<QmlMainWindow>(uri, 1, 0, "ChiakiWindow", {});
     qmlRegisterUncreatableType<QmlSettings>(uri, 1, 0, "ChiakiSettings", {});
     qmlRegisterUncreatableType<StreamSession>(uri, 1, 0, "ChiakiSession", {});
+    qmlRegisterUncreatableType<NLForkUpdater>(uri, 1, 0, "NLForkUpdater", {});
+
+    // NLFork: look for a newer release on GitHub shortly after start
+    nlfork_updater = new NLForkUpdater(this);
+    QTimer::singleShot(4000, nlfork_updater, &NLForkUpdater::checkForUpdates);
 
     QObject *frame_obj = new QObject();
     frame_thread = new QThread(frame_obj);
@@ -336,6 +341,8 @@ QmlBackend::QmlBackend(Settings *settings, QmlMainWindow *window)
     discovery_manager.SetSettings(settings);
     setDiscoveryEnabled(true);
     connect(ControllerManager::GetInstance(), &ControllerManager::AvailableControllersUpdated, this, &QmlBackend::updateControllers);
+    ControllerManager::GetInstance()->SetButtonRemap(settings->GetControllerRemap());
+    connect(ControllerManager::GetInstance(), &ControllerManager::ButtonCaptured, this, &QmlBackend::buttonCaptured);
     connect(settings_qml, &QmlSettings::allowJoystickBackgroundEventsChanged, this, &QmlBackend::setAllowJoystickBackgroundEvents);
     connect(window, &QmlMainWindow::activeChanged, this, &QmlBackend::setIsAppActive);
     connect(this, &QmlBackend::sessionChanged, this, &QmlBackend::setIsAppActive);
@@ -2361,6 +2368,103 @@ void QmlBackend::controllerMappingButtonQuit()
 {
     if(controller_mapping_in_progress && controller_mapping_controller)
         controller_mapping_controller->IsUpdatingMappingButton(false);
+}
+
+static const char *remapActionLabel(const QString &action)
+{
+    static const QMap<QString, const char *> labels = {
+        {"cross", QT_TR_NOOP("Cross (✕)")},
+        {"circle", QT_TR_NOOP("Circle (○)")},
+        {"square", QT_TR_NOOP("Square (□)")},
+        {"triangle", QT_TR_NOOP("Triangle (△)")},
+        {"up", QT_TR_NOOP("D-pad up")},
+        {"down", QT_TR_NOOP("D-pad down")},
+        {"left", QT_TR_NOOP("D-pad left")},
+        {"right", QT_TR_NOOP("D-pad right")},
+        {"l1", "L1"},
+        {"r1", "R1"},
+        {"l2", QT_TR_NOOP("L2 (full press)")},
+        {"r2", QT_TR_NOOP("R2 (full press)")},
+        {"l3", "L3"},
+        {"r3", "R3"},
+        {"options", QT_TR_NOOP("Options")},
+        {"create", QT_TR_NOOP("Create")},
+        {"touchpad", QT_TR_NOOP("Touchpad (press)")},
+        {"ps", QT_TR_NOOP("PS button")},
+    };
+    return labels.value(action, "");
+}
+
+QVariantList QmlBackend::controllerRemapList() const
+{
+    auto manager = ControllerManager::GetInstance();
+    QVariantList list;
+    for (const QString &action : ControllerManager::RemapActions()) {
+        const QString binding = manager->RemapBinding(action);
+        QVariantMap item;
+        item["action"] = action;
+        item["name"] = tr(remapActionLabel(action));
+        item["binding"] = binding;
+        item["label"] = binding.isEmpty() ? tr("Not assigned") : ControllerManager::RemapBindingLabel(binding);
+        item["custom"] = binding != ControllerManager::DefaultRemapBinding(action);
+        item["available"] = manager->RemapBindingAvailable(binding);
+        list.append(item);
+    }
+    return list;
+}
+
+QString QmlBackend::setControllerRemapBinding(const QString &action, const QString &binding)
+{
+    auto manager = ControllerManager::GetInstance();
+    QMap<QString, QString> current;
+    for (const QString &a : ControllerManager::RemapActions())
+        current[a] = manager->RemapBinding(a);
+    if (!current.contains(action))
+        return QString();
+    const QString old = current[action];
+    QString notice;
+    // A button can only do one thing: whoever had it takes this action's old binding
+    if (!binding.isEmpty() && binding != old) {
+        for (auto it = current.begin(); it != current.end(); ++it) {
+            if (it.key() != action && it.value() == binding) {
+                it.value() = old;
+                const QString moved = old.isEmpty() ? tr("Not assigned") : ControllerManager::RemapBindingLabel(old);
+                notice = tr("%1 was on %2, so %2 now uses: %3")
+                             .arg(ControllerManager::RemapBindingLabel(binding), tr(remapActionLabel(it.key())), moved);
+            }
+        }
+    }
+    current[action] = binding;
+    QStringList parts;
+    for (auto it = current.cbegin(); it != current.cend(); ++it)
+        parts.append(it.key() + "=" + it.value());
+    const QString spec = ControllerManager::NormalizeRemapSpec(parts.join(';'));
+    settings->SetControllerRemap(spec);
+    manager->SetButtonRemap(spec);
+    emit controllerRemapChanged();
+    return notice;
+}
+
+void QmlBackend::resetControllerRemap()
+{
+    settings->SetControllerRemap(QString());
+    ControllerManager::GetInstance()->SetButtonRemap(QString());
+    emit controllerRemapChanged();
+}
+
+void QmlBackend::startButtonCapture()
+{
+    ControllerManager::GetInstance()->StartButtonCapture();
+}
+
+void QmlBackend::cancelButtonCapture()
+{
+    ControllerManager::GetInstance()->CancelButtonCapture();
+}
+
+QString QmlBackend::remapBindingLabel(const QString &binding) const
+{
+    return ControllerManager::RemapBindingLabel(binding);
 }
 
 void QmlBackend::controllerMappingApply()

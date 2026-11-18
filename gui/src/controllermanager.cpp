@@ -171,6 +171,7 @@ ControllerManager::ControllerManager(QObject *parent)
 	move_timer->start(MOVE_CHECK_MS);
 #endif
 
+	SetButtonRemap(QString());
 	UpdateAvailableControllers();
 }
 
@@ -206,6 +207,246 @@ void ControllerManager::SetButtonsByPos()
 #ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
 	SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
 #endif
+}
+
+// ---------------------------------------------------------------------------------------------
+// NLFork button remapping
+// ---------------------------------------------------------------------------------------------
+
+// A button that is part of a combo waits this long before acting alone, so pressing the first
+// button of a combo does not also send its own action to the console.
+#define REMAP_COMBO_GRACE_MS 70
+// How long a quick tap of such a button is held down for the console.
+#define REMAP_TAP_MS 60
+
+struct RemapActionInfo
+{
+	const char *action;
+	uint32_t ps;
+	const char *default_binding;
+};
+
+static const RemapActionInfo remap_action_info[] = {
+	{"cross", CHIAKI_CONTROLLER_BUTTON_CROSS, "a"},
+	{"circle", CHIAKI_CONTROLLER_BUTTON_MOON, "b"},
+	{"square", CHIAKI_CONTROLLER_BUTTON_BOX, "x"},
+	{"triangle", CHIAKI_CONTROLLER_BUTTON_PYRAMID, "y"},
+	{"up", CHIAKI_CONTROLLER_BUTTON_DPAD_UP, "dpup"},
+	{"down", CHIAKI_CONTROLLER_BUTTON_DPAD_DOWN, "dpdown"},
+	{"left", CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT, "dpleft"},
+	{"right", CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT, "dpright"},
+	{"l1", CHIAKI_CONTROLLER_BUTTON_L1, "leftshoulder"},
+	{"r1", CHIAKI_CONTROLLER_BUTTON_R1, "rightshoulder"},
+	{"l2", CHIAKI_CONTROLLER_ANALOG_BUTTON_L2, ""},
+	{"r2", CHIAKI_CONTROLLER_ANALOG_BUTTON_R2, ""},
+	{"l3", CHIAKI_CONTROLLER_BUTTON_L3, "leftstick"},
+	{"r3", CHIAKI_CONTROLLER_BUTTON_R3, "rightstick"},
+	{"options", CHIAKI_CONTROLLER_BUTTON_OPTIONS, "start"},
+	{"create", CHIAKI_CONTROLLER_BUTTON_SHARE, "back"},
+	{"touchpad", CHIAKI_CONTROLLER_BUTTON_TOUCHPAD, "touchpad"},
+	{"ps", CHIAKI_CONTROLLER_BUTTON_PS, "guide"},
+};
+
+static int PopCount(uint32_t v)
+{
+	int c = 0;
+	for(; v; v &= v - 1)
+		c++;
+	return c;
+}
+
+// "back+start" -> bit mask of SDL buttons (0 if empty or invalid)
+static uint32_t RemapBindingMask(const QString &binding)
+{
+	uint32_t mask = 0;
+#ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
+	const auto parts = binding.split('+', Qt::SkipEmptyParts);
+	for(const QString &part : parts)
+	{
+		const SDL_GameControllerButton b = SDL_GameControllerGetButtonFromString(part.trimmed().toUtf8().constData());
+		if(b == SDL_CONTROLLER_BUTTON_INVALID || b >= 32)
+			return 0;
+		mask |= 1u << b;
+	}
+	if(PopCount(mask) > 2)
+		return 0;
+#else
+	Q_UNUSED(binding);
+#endif
+	return mask;
+}
+
+QStringList ControllerManager::RemapActions()
+{
+	QStringList list;
+	for(const auto &info : remap_action_info)
+		list.append(info.action);
+	return list;
+}
+
+QString ControllerManager::DefaultRemapBinding(const QString &action)
+{
+	for(const auto &info : remap_action_info)
+		if(action == info.action)
+			return info.default_binding;
+	return QString();
+}
+
+QString ControllerManager::RemapBindingLabel(const QString &binding)
+{
+	static const QMap<QString, QString> names = {
+		{"a", "A"}, {"b", "B"}, {"x", "X"}, {"y", "Y"},
+		{"back", "View / Select"}, {"guide", "Home"}, {"start", "Menu / Start"},
+		{"leftstick", "LS (L3)"}, {"rightstick", "RS (R3)"},
+		{"leftshoulder", "LB (L1)"}, {"rightshoulder", "RB (R1)"},
+		{"dpup", "D-pad ↑"}, {"dpdown", "D-pad ↓"}, {"dpleft", "D-pad ←"}, {"dpright", "D-pad →"},
+		{"misc1", "Share / Capture"},
+		{"paddle1", "P1"}, {"paddle2", "P2"}, {"paddle3", "P3"}, {"paddle4", "P4"},
+		{"touchpad", "Touchpad"},
+	};
+	if(binding.isEmpty())
+		return QString();
+	QStringList out;
+	for(const QString &part : binding.split('+', Qt::SkipEmptyParts))
+		out.append(names.value(part, part));
+	return out.join(" + ");
+}
+
+// Keeps only known actions with valid bindings; actions equal to their default are dropped.
+QString ControllerManager::NormalizeRemapSpec(const QString &spec)
+{
+	QMap<QString, QString> values;
+	for(const QString &item : spec.split(';', Qt::SkipEmptyParts))
+	{
+		const int eq = item.indexOf('=');
+		if(eq <= 0)
+			continue;
+		const QString action = item.left(eq).trimmed();
+		const QString binding = item.mid(eq + 1).trimmed();
+		if(!RemapActions().contains(action))
+			continue;
+		if(!binding.isEmpty() && !RemapBindingMask(binding))
+			continue;
+		if(binding == DefaultRemapBinding(action))
+			continue;
+		values[action] = binding;
+	}
+	QStringList out;
+	for(const QString &action : RemapActions())
+		if(values.contains(action))
+			out.append(action + "=" + values[action]);
+	return out.join(';');
+}
+
+void ControllerManager::SetButtonRemap(const QString &spec)
+{
+	QMap<QString, QString> custom;
+	for(const QString &item : NormalizeRemapSpec(spec).split(';', Qt::SkipEmptyParts))
+	{
+		const int eq = item.indexOf('=');
+		custom[item.left(eq)] = item.mid(eq + 1);
+	}
+
+	button_remap.clear();
+	remap_combo_bits = 0;
+	remap_used_bits = 0;
+	for(const auto &info : remap_action_info)
+	{
+		const QString binding = custom.contains(info.action) ? custom[info.action] : QString(info.default_binding);
+		const uint32_t mask = RemapBindingMask(binding);
+		if(!mask)
+			continue;
+		button_remap.append({info.action, info.ps, mask});
+		remap_used_bits |= mask;
+		if(PopCount(mask) >= 2)
+			remap_combo_bits |= mask;
+	}
+	for(Controller *controller : std::as_const(open_controllers))
+		controller->NotifyRemapChanged();
+}
+
+QString ControllerManager::RemapBinding(const QString &action) const
+{
+#ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
+	for(const auto &entry : button_remap)
+	{
+		if(entry.action != action)
+			continue;
+		QStringList parts;
+		for(int b = 0; b < 32; b++)
+			if(entry.mask & (1u << b))
+				parts.append(SDL_GameControllerGetStringForButton(static_cast<SDL_GameControllerButton>(b)));
+		return parts.join('+');
+	}
+#else
+	Q_UNUSED(action);
+#endif
+	return QString();
+}
+
+bool ControllerManager::RemapBindingAvailable(const QString &binding) const
+{
+#ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
+	const uint32_t mask = RemapBindingMask(binding);
+	if(!mask || open_controllers.isEmpty())
+		return true;
+	for(Controller *controller : std::as_const(open_controllers))
+	{
+		SDL_GameController *gc = controller->GetController();
+		if(!gc)
+			continue;
+		bool all = true;
+		for(int b = 0; b < 32; b++)
+			if((mask & (1u << b)) && !SDL_GameControllerHasButton(gc, static_cast<SDL_GameControllerButton>(b)))
+				all = false;
+		if(all)
+			return true;
+	}
+	return false;
+#else
+	Q_UNUSED(binding);
+	return true;
+#endif
+}
+
+void ControllerManager::StartButtonCapture()
+{
+	button_capture = true;
+	capture_held = 0;
+	capture_mask = 0;
+}
+
+void ControllerManager::CancelButtonCapture()
+{
+	button_capture = false;
+	capture_held = 0;
+	capture_mask = 0;
+}
+
+void ControllerManager::CaptureButton(uint32_t bit, bool down)
+{
+	if(down)
+	{
+		if(PopCount(capture_mask) >= 2 && !(capture_mask & bit))
+			return; // combos have at most two buttons
+		capture_held |= bit;
+		capture_mask |= bit;
+		return;
+	}
+	if(!(capture_mask & bit))
+		return; // e.g. releasing the button that opened the capture
+	capture_held &= ~bit;
+	if(capture_held)
+		return;
+	QStringList parts;
+#ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
+	for(int b = 0; b < 32; b++)
+		if(capture_mask & (1u << b))
+			parts.append(SDL_GameControllerGetStringForButton(static_cast<SDL_GameControllerButton>(b)));
+#endif
+	button_capture = false;
+	capture_mask = 0;
+	emit ButtonCaptured(parts.join('+'));
 }
 
 void ControllerManager::UpdateAvailableControllers()
@@ -522,101 +763,141 @@ void Controller::UpdateState(SDL_Event event)
 	manager->moved = true;
 }
 
+// Buttons go through the user's remap table (ControllerManager::button_remap). The default table
+// is the classic layout: A = Cross, B = Circle, View = Create, Menu = Options, and so on.
 inline bool Controller::HandleButtonEvent(SDL_ControllerButtonEvent event) {
-	ChiakiControllerButton ps_btn;
-	switch(event.button)
+	if(event.button >= 32)
+		return false;
+	const uint32_t bit = 1u << event.button;
+	const bool down = event.type == SDL_CONTROLLERBUTTONDOWN;
+
+	if(manager->button_capture)
 	{
-		case SDL_CONTROLLER_BUTTON_A:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_CROSS;
-			break;
-		case SDL_CONTROLLER_BUTTON_B:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_MOON;
-			break;
-		case SDL_CONTROLLER_BUTTON_X:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_BOX;
-			break;
-		case SDL_CONTROLLER_BUTTON_Y:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_PYRAMID;
-			break;
-		case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_DPAD_LEFT;
-			break;
-		case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_DPAD_RIGHT;
-			break;
-		case SDL_CONTROLLER_BUTTON_DPAD_UP:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_DPAD_UP;
-			break;
-		case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_DPAD_DOWN;
-			break;
-		case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_L1;
-			break;
-		case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_R1;
-			break;
-		case SDL_CONTROLLER_BUTTON_LEFTSTICK:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_L3;
-			break;
-		case SDL_CONTROLLER_BUTTON_RIGHTSTICK:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_R3;
-			break;
-		case SDL_CONTROLLER_BUTTON_START:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_OPTIONS;
-			break;
-		case SDL_CONTROLLER_BUTTON_BACK:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_SHARE;
-			break;
-		case SDL_CONTROLLER_BUTTON_GUIDE:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_PS;
-			break;
-		case SDL_CONTROLLER_BUTTON_MISC1:
-			micbutton_push = true;
-			break;
-		case SDL_CONTROLLER_BUTTON_PADDLE1:
-			return false;
-		case SDL_CONTROLLER_BUTTON_PADDLE2:
-			return false;
-		case SDL_CONTROLLER_BUTTON_PADDLE3:
-			return false;
-		case SDL_CONTROLLER_BUTTON_PADDLE4:
-			return false;
-#if SDL_VERSION_ATLEAST(2, 0, 14)
-		case SDL_CONTROLLER_BUTTON_TOUCHPAD:
-			ps_btn = CHIAKI_CONTROLLER_BUTTON_TOUCHPAD;
-			break;
-#endif
-		default:
+		// While the Controller dialog listens for a new binding nothing new reaches the console
+		// or the menus; releases still go through so no button stays stuck.
+		if(down)
+		{
+			manager->CaptureButton(bit, true);
 			return false;
 		}
-	if(event.type == SDL_CONTROLLERBUTTONDOWN)
+		manager->CaptureButton(bit, false);
+		held_sdl &= ~bit;
+		grace_bits &= ~bit;
+		combo_locked &= ~bit;
+		RecomputeButtons();
+		return true;
+	}
+
+	// Without a binding the Share/Capture button keeps toggling the microphone
+	if(event.button == SDL_CONTROLLER_BUTTON_MISC1 && !(manager->remap_used_bits & bit))
 	{
-		if(!micbutton_push)
-			state.buttons |= ps_btn;
+		if(!down)
+			emit MicButtonPush();
+		return false;
+	}
+
+	if(down)
+	{
+		held_sdl |= bit;
+		bool completed_combo = false;
+		for(const auto &entry : std::as_const(manager->button_remap))
+		{
+			if(PopCount(entry.mask) >= 2 && (entry.mask & bit) && (held_sdl & entry.mask) == entry.mask)
+			{
+				combo_locked |= entry.mask;
+				grace_bits &= ~entry.mask;
+				completed_combo = true;
+			}
+		}
+		if(!completed_combo && (manager->remap_combo_bits & bit))
+		{
+			grace_bits |= bit;
+			QTimer::singleShot(REMAP_COMBO_GRACE_MS, this, [this, bit]() {
+				if(!(grace_bits & bit))
+					return;
+				grace_bits &= ~bit;
+				RecomputeButtons();
+				emit StateChanged();
+			});
+		}
 	}
 	else
 	{
-		if(micbutton_push)
+		held_sdl &= ~bit;
+		combo_locked &= ~bit;
+		if(grace_bits & bit)
 		{
-			micbutton_push = false;
-			emit MicButtonPush();
-			return false;
+			// Released before the grace time ended: send it as a short tap
+			grace_bits &= ~bit;
+			const uint32_t tap = SingleActionFor(bit);
+			if(tap)
+			{
+				tap_ps |= tap;
+				QTimer::singleShot(REMAP_TAP_MS, this, [this, tap]() {
+					tap_ps &= ~tap;
+					RecomputeButtons();
+					emit StateChanged();
+				});
+			}
 		}
-		else
-			state.buttons &= ~ps_btn;
 	}
+	RecomputeButtons();
 	return true;
+}
+
+uint32_t Controller::SingleActionFor(uint32_t bit) const
+{
+	uint32_t ps = 0;
+	for(const auto &entry : std::as_const(manager->button_remap))
+		if(entry.mask == bit)
+			ps |= entry.ps;
+	return ps;
+}
+
+void Controller::RecomputeButtons()
+{
+	uint32_t ps = 0;
+	uint32_t consumed = 0;
+	const auto &remap = manager->button_remap;
+	for(const auto &entry : remap)
+	{
+		if(PopCount(entry.mask) >= 2 && (held_sdl & entry.mask) == entry.mask)
+		{
+			ps |= entry.ps;
+			consumed |= entry.mask;
+		}
+	}
+	const uint32_t silent = consumed | combo_locked | grace_bits;
+	for(const auto &entry : remap)
+	{
+		if(PopCount(entry.mask) == 1 && (held_sdl & entry.mask) && !(silent & entry.mask))
+			ps |= entry.ps;
+	}
+	ps |= tap_ps;
+	state.buttons = ps & 0xffff;
+	state.l2_state = (ps & CHIAKI_CONTROLLER_ANALOG_BUTTON_L2) ? 0xff : analog_l2;
+	state.r2_state = (ps & CHIAKI_CONTROLLER_ANALOG_BUTTON_R2) ? 0xff : analog_r2;
+}
+
+void Controller::NotifyRemapChanged()
+{
+	grace_bits = 0;
+	combo_locked = 0;
+	tap_ps = 0;
+	RecomputeButtons();
+	emit StateChanged();
 }
 
 inline bool Controller::HandleAxisEvent(SDL_ControllerAxisEvent event) {
 	switch(event.axis)
 	{
 		case SDL_CONTROLLER_AXIS_TRIGGERLEFT:
-			state.l2_state = (uint8_t)(event.value >> 7);
+			analog_l2 = (uint8_t)(event.value >> 7);
+			RecomputeButtons();
 			break;
 		case SDL_CONTROLLER_AXIS_TRIGGERRIGHT:
-			state.r2_state = (uint8_t)(event.value >> 7);
+			analog_r2 = (uint8_t)(event.value >> 7);
+			RecomputeButtons();
 			break;
 		case SDL_CONTROLLER_AXIS_LEFTX:
 			state.left_x = event.value;

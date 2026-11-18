@@ -278,6 +278,9 @@ class Settings : public QObject
 		void SetShowStreamStats(bool enabled)      { settings.setValue("settings/show_stream_stats", enabled); }
 		bool GetAutoReconnect() const              { return settings.value("settings/auto_reconnect", true).toBool(); }
 		void SetAutoReconnect(bool enabled)        { settings.setValue("settings/auto_reconnect", enabled); }
+		// NLFork button remap, e.g. "touchpad=back+start;l2=paddle1" (empty = default layout)
+		QString GetControllerRemap() const         { return settings.value("settings/controller_remap", QString()).toString(); }
+		void SetControllerRemap(const QString &spec) { settings.setValue("settings/controller_remap", spec); }
 
 		bool GetStreamerMode() const		{ return settings.value("settings/streamer_mode", false).toBool(); }
 		void SetStreamerMode(bool enabled)	{ settings.setValue("settings/streamer_mode", enabled); }

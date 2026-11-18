@@ -14,6 +14,7 @@ Window {
 
     signal closeRequested()
     signal displaySettingsRequested()
+    signal controllerRemapRequested()
     signal placeboSettingsRequested()
     signal mainViewRequested()
     signal closeAnimationFinished()
@@ -170,8 +171,22 @@ Window {
                 checked: Chiaki.settings.showStreamStats
                 onToggled: Chiaki.settings.showStreamStats = !Chiaki.settings.showStreamStats
                 KeyNavigation.left: muteButton
-                KeyNavigation.right: zoomButton
+                KeyNavigation.right: controllerRemapButton
                 Keys.onReturnPressed: toggled()
+                Keys.onEscapePressed: streamMenuWindow.closeRequested()
+            }
+
+            ToolButton {
+                id: controllerRemapButton
+                Layout.rightMargin: 20
+                text: qsTr("Controller")
+                padding: 10
+                checkable: false
+                icon.source: "qrc:/icons/settings-20px.svg"
+                onClicked: streamMenuWindow.controllerRemapRequested()
+                KeyNavigation.left: statsButton
+                KeyNavigation.right: zoomButton
+                Keys.onReturnPressed: clicked()
                 Keys.onEscapePressed: streamMenuWindow.closeRequested()
             }
 
@@ -182,7 +197,7 @@ Window {
                 checkable: true
                 checked: Chiaki.window.videoMode == ChiakiWindow.VideoMode.Zoom
                 onToggled: Chiaki.window.videoMode = Chiaki.window.videoMode == ChiakiWindow.VideoMode.Zoom ? ChiakiWindow.VideoMode.Normal : ChiakiWindow.VideoMode.Zoom
-                KeyNavigation.left: statsButton
+                KeyNavigation.left: controllerRemapButton
                 KeyNavigation.right: Chiaki.window.videoMode == ChiakiWindow.VideoMode.Zoom ? zoomFactor : stretchButton
                 Keys.onReturnPressed: toggled()
                 Keys.onEscapePressed: streamMenuWindow.closeRequested()

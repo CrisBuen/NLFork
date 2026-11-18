@@ -47,8 +47,14 @@
 | **Auto-reconnect** | Up to 3 retries when the stream drops because of a network error. It never wakes a console from rest mode. |
 | **Freeze fix after 10.7 days of uptime** | On Windows, the monotonic clock overflowed after about 10.7 days without a reboot and froze the video for good. Fixed in NLFork. |
 | **`color-nitido` chroma shader** | Luma-guided 4:2:0 chroma reconstruction: about 2 dB closer to the 4:4:4 original, for about 0.05 ms of GPU time. |
+| **Any controller, touchpad included** *(new in 1.0.1)* | Remap every PS5 button to any button of an Xbox, generic or pro controller, a two-button combo, or the back paddles. Games that ask you to press the touchpad work with, for example, B + Y. Open it from **Settings → Controllers** or from **Controller** in the stream menu, in the middle of a game. |
+| **Self-updater** *(new in 1.0.1)* | NLFork checks GitHub when it starts. When there's a new version it shows what's new, and **Install now** downloads it, verifies it, installs it and restarts NLFork, PS5 style. |
 | **Console-style UI** | Big console tiles and one-click profiles on the home screen. |
 | **Spanish translation** | The language switches instantly, without a restart. |
+
+<p align="center">
+  <img src="docs/screenshots/controller-en.png" alt="NLFork Controller window: remap buttons and the touchpad" width="720">
+</p>
 
 ### Requirements
 - Windows 10/11 (64-bit) and a Vulkan-capable GPU.
@@ -84,7 +90,13 @@ NLFork builds with MSYS2 (MINGW64), exactly like chiaki-ng. See [README-chiaki-n
 - **Reconexión automática**: hasta 3 intentos si se cae la red. Nunca enciende la consola si está en reposo.
 - **Corrección del congelamiento** que ocurría tras 10,7 días con el PC encendido: el reloj de Windows se desbordaba.
 - **Shader `color-nitido`**: el color queda unos 2 dB más cerca del original y cuesta unos 0,05 ms de GPU.
+- **Cualquier mando, panel táctil incluido** *(nuevo en 1.0.1)*: asigna cada botón de la PS5 a cualquier botón de un mando Xbox, genérico o pro, a una combinación de 2 botones o a los botones traseros. Los juegos que piden tocar el panel táctil funcionan con, por ejemplo, B + Y. Está en **Ajustes → Mandos** y en el botón **Mando** del menú del stream, en pleno juego.
+- **Actualización automática** *(nuevo en 1.0.1)*: al abrir NLFork busca versiones nuevas en GitHub. Si hay una, muestra las novedades y con **Instalar ahora** la descarga, la verifica, la instala y se reinicia solo, al estilo PS5.
 - **Interfaz estilo consola** y **español** con cambio de idioma al instante.
+
+<p align="center">
+  <img src="docs/screenshots/controller-es.png" alt="Ventana Mando de NLFork: reasignar botones y el panel táctil" width="720">
+</p>
 
 ### Requisitos
 - Windows 10/11 de 64 bits y una GPU con Vulkan.

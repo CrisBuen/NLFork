@@ -9,7 +9,9 @@
 #include <QSet>
 #include <QMap>
 #include <QString>
+#include <QStringList>
 #include <QTimer>
+#include <QVector>
 
 #ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
 #include <SDL.h>
@@ -21,6 +23,16 @@
 
 class Controller;
 
+// NLFork button remapping. A binding is one SDL game controller button or a combo of two,
+// stored as a bit mask of SDL_GameControllerButton values. `ps` is a ChiakiControllerButton
+// or CHIAKI_CONTROLLER_ANALOG_BUTTON_L2 / _R2 (pressed fully).
+struct ButtonRemapEntry
+{
+	QString action;
+	uint32_t ps;
+	uint32_t mask;
+};
+
 class ControllerManager : public QObject
 {
 	Q_OBJECT
@@ -28,6 +40,14 @@ class ControllerManager : public QObject
 	friend class Controller;
 
 	private:
+		QVector<ButtonRemapEntry> button_remap;
+		uint32_t remap_combo_bits = 0; // buttons that take part in some combo
+		uint32_t remap_used_bits = 0;  // buttons that are bound to something
+		bool button_capture = false;
+		uint32_t capture_held = 0;
+		uint32_t capture_mask = 0;
+		void CaptureButton(uint32_t bit, bool down);
+
 #ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
 		QSet<SDL_JoystickID> available_controllers;
 #endif
@@ -65,7 +85,22 @@ class ControllerManager : public QObject
 		QSet<int> GetAvailableControllers();
 		Controller *OpenController(int device_id);
 
+		// Remapping. `spec` looks like "cross=a;touchpad=back+start;l2=paddle1"; actions that are
+		// missing keep their default binding and an empty value leaves the action unbound.
+		static QStringList RemapActions();
+		static QString DefaultRemapBinding(const QString &action);
+		static QString RemapBindingLabel(const QString &binding);
+		static QString NormalizeRemapSpec(const QString &spec);
+		void SetButtonRemap(const QString &spec);
+		QString RemapBinding(const QString &action) const;
+		// False when a connected controller lacks a button of the binding (e.g. "touchpad" on an Xbox pad)
+		bool RemapBindingAvailable(const QString &binding) const;
+		void StartButtonCapture();
+		void CancelButtonCapture();
+		bool IsCapturingButtons() const { return button_capture; }
+
 	signals:
+		void ButtonCaptured(const QString &binding);
 		void AvailableControllersUpdated();
 		void ControllerMoved();
 		void AudioOutputDeviceAdded(const QString &name);
@@ -106,6 +141,17 @@ class Controller : public QObject
 		bool has_led;
 		bool micbutton_push;
 		uint16_t firmware_version;
+
+		// Remapping state (SDL button bit masks)
+		uint32_t held_sdl = 0;
+		uint32_t grace_bits = 0;   // combo buttons waiting a moment before acting alone
+		uint32_t combo_locked = 0; // buttons that already fired a combo, silent until released
+		uint32_t tap_ps = 0;       // short press released during the grace time
+		uint8_t analog_l2 = 0;
+		uint8_t analog_r2 = 0;
+		void RecomputeButtons();
+		uint32_t SingleActionFor(uint32_t bit) const;
+		void NotifyRemapChanged();
 
 #ifdef CHIAKI_GUI_ENABLE_SDL_GAMECONTROLLER
 		QMap<QPair<Sint64, Sint64>, uint8_t> touch_ids;

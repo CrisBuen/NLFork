@@ -88,8 +88,50 @@ Item {
         }
     }
 
+    // NLFork: Controller (button remap) window over the stream
+    function openControllerRemap() {
+        if(placeboSettingsRect.opacity || displaySettingsRect.opacity || colorMappingSettingsRect.opacity || controllerRemapRect.opacity)
+            closeDialog();
+        useSeparateStreamSettingsWindows = preferSeparateStreamSettingsWindows;
+        const loader = useSeparateStreamSettingsWindows ? separateControllerRemapLoader : controllerRemapLoader;
+        if(loader.status == Loader.Ready)
+        {
+            loader.item.refresh(-1);
+            controllerRemapRect.opacity = 0.95;
+            grabInput(loader);
+            let item = loader.item.mainItem.nextItemInFocusChain();
+            if (item)
+                item.forceActiveFocus(Qt.TabFocusReason);
+        }
+    }
+
+    function showControllerRemapDialog() {
+        stack.push(controllerRemapDialogComponent);
+    }
+
+    // NLFork updater window (PS5-style). Opens by itself once per run when a new version shows up.
+    property bool updatePromptShown: false
+    function showUpdateDialog() {
+        updateDialog.show();
+    }
+
+    Connections {
+        target: Chiaki.updater
+        function onStateChanged() {
+            if (Chiaki.updater.state === NLForkUpdater.Available && !root.updatePromptShown && !Chiaki.session) {
+                root.updatePromptShown = true;
+                updateDialog.show();
+            }
+        }
+    }
+
     function closeDialog() {
-       if(displaySettingsRect.opacity) {
+       if(controllerRemapRect.opacity) {
+        controllerRemapRect.opacity = 0.0;
+        releaseInput();
+        useSeparateStreamSettingsWindows = false;
+       }
+       else if(displaySettingsRect.opacity) {
         displaySettingsRect.opacity = 0.0;
         const loader = useSeparateStreamSettingsWindows ? separateDisplaySettingsLoader : displaySettingsLoader;
         loader.item.restoreFocusItem = Window.window.activeFocusItem;
@@ -115,7 +157,12 @@ Item {
     }
 
     function showMainView() {
-        if(displaySettingsRect.opacity) {
+        if(controllerRemapRect.opacity) {
+            controllerRemapRect.opacity = 0.0;
+            releaseInput();
+            useSeparateStreamSettingsWindows = false;
+        }
+        else if(displaySettingsRect.opacity) {
             displaySettingsRect.opacity = 0.0;
             const loader = useSeparateStreamSettingsWindows ? separateDisplaySettingsLoader : displaySettingsLoader;
             loader.item.restoreFocusItem = Window.window.activeFocusItem;
@@ -319,6 +366,58 @@ Item {
             sourceComponent: displaySettingsDialogComponent
         }
     }
+    UpdateDialog {
+        id: updateDialog
+        anchors.fill: parent
+        z: 1000
+    }
+
+    Rectangle {
+        id: controllerRemapRect
+        opacity: 0.0
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        height: Math.min(parent.height, 720)
+        width: Math.min(parent.width, 1200)
+        visible: opacity && !useSeparateStreamSettingsWindows
+        color: Material.background
+        Loader {
+            anchors.fill: parent
+            id: controllerRemapLoader
+            sourceComponent: controllerRemapDialogComponent
+        }
+    }
+
+    Window {
+        id: separateControllerRemapWindow
+        visible: useSeparateStreamSettingsWindows && controllerRemapRect.opacity > 0.0
+        transientParent: Chiaki.window
+        flags: Qt.Dialog | Qt.FramelessWindowHint
+        color: Material.background
+        modality: Qt.NonModal
+        x: Math.round(root.mapToGlobal(0, 0).x)
+        y: Math.round(root.mapToGlobal(0, 0).y)
+        width: Math.round(root.width)
+        height: Math.min(Math.round(root.height), 720)
+        onVisibleChanged: if (visible) requestActivate()
+
+        Shortcut {
+            sequence: "Ctrl+O"
+            onActivated: root.closeDialog()
+        }
+
+        Shortcut {
+            sequence: StandardKey.Cancel
+            onActivated: root.closeDialog()
+        }
+
+        Loader {
+            anchors.fill: parent
+            id: separateControllerRemapLoader
+            sourceComponent: controllerRemapDialogComponent
+        }
+    }
+
     Rectangle {
         id: colorMappingSettingsRect
         anchors.top: parent.top
@@ -645,5 +744,10 @@ Item {
     Component {
         id: controllerMappingDialogComponent
         ControllerMappingDialog { }
+    }
+
+    Component {
+        id: controllerRemapDialogComponent
+        ControllerRemapDialog { }
     }
 }

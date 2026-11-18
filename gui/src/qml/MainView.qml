@@ -181,6 +181,35 @@ Pane {
 
             Item { Layout.fillWidth: true }
 
+            // NLFork: a newer version is on GitHub
+            PillButton {
+                visible: Chiaki.updater && Chiaki.updater.updateAvailable
+                highlighted: true
+                text: Chiaki.updater ? qsTr("Update %1").arg(Chiaki.updater.latestVersion) : ""
+                icon.source: "qrc:/icons/add-24px.svg"
+                icon.width: 0
+                icon.height: 0
+                Material.accent: "#19c3ff"
+                onClicked: root.showUpdateDialog()
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: qsTr("A new version of NLFork is ready to install")
+
+                Rectangle {
+                    anchors { right: parent.right; top: parent.top; rightMargin: 4; topMargin: 6 }
+                    width: 12
+                    height: 12
+                    radius: 6
+                    color: "#ff4d6d"
+                    SequentialAnimation on scale {
+                        running: parent.visible
+                        loops: Animation.Infinite
+                        NumberAnimation { from: 1; to: 1.35; duration: 700; easing.type: Easing.InOutSine }
+                        NumberAnimation { from: 1.35; to: 1; duration: 700; easing.type: Easing.InOutSine }
+                    }
+                }
+            }
+
             PillButton {
                 text: qsTr("Steam Shortcut")
                 visible: typeof Chiaki.createSteamShortcut === "function"

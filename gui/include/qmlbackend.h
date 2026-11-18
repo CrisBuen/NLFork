@@ -5,6 +5,7 @@
 #include "qmlmainwindow.h"
 #include "qmlcontroller.h"
 #include "qmlsettings.h"
+#include "updater.h"
 
 #include <QObject>
 #include <QMutex>
@@ -80,6 +81,7 @@ class QmlBackend : public QObject
     Q_OBJECT
     Q_PROPERTY(QmlMainWindow* window READ qmlWindow CONSTANT)
     Q_PROPERTY(QmlSettings* settings READ qmlSettings CONSTANT)
+    Q_PROPERTY(NLForkUpdater* updater READ updater CONSTANT)
     Q_PROPERTY(StreamSession* session READ qmlSession NOTIFY sessionChanged)
     Q_PROPERTY(QList<QmlController*> controllers READ qmlControllers NOTIFY controllersChanged)
     Q_PROPERTY(bool discoveryEnabled READ discoveryEnabled WRITE setDiscoveryEnabled NOTIFY discoveryEnabledChanged)
@@ -118,6 +120,7 @@ public:
 
     QmlMainWindow *qmlWindow() const;
     QmlSettings *qmlSettings() const;
+    NLForkUpdater *updater() const { return nlfork_updater; }
     StreamSession *qmlSession() const;
     QList<QmlController*> qmlControllers() const;
 
@@ -214,6 +217,14 @@ public:
     Q_INVOKABLE void controllerMappingQuit();
     Q_INVOKABLE void controllerMappingButtonQuit();
     Q_INVOKABLE void controllerMappingApply();
+    // NLFork button remap (Controller dialog)
+    Q_INVOKABLE QVariantList controllerRemapList() const;
+    // Returns a short notice when another action had to give up its button (empty otherwise)
+    Q_INVOKABLE QString setControllerRemapBinding(const QString &action, const QString &binding);
+    Q_INVOKABLE void resetControllerRemap();
+    Q_INVOKABLE void startButtonCapture();
+    Q_INVOKABLE void cancelButtonCapture();
+    Q_INVOKABLE QString remapBindingLabel(const QString &binding) const;
     Q_INVOKABLE void autoRegister();
 #if CHIAKI_GUI_ENABLE_STEAM_SHORTCUT
     Q_INVOKABLE void createSteamShortcut(QString shortcutName, QString launchOptions, const QJSValue &callback, QString steamDir);
@@ -237,6 +248,8 @@ signals:
     void controllerMappingAlteredChanged();
     void controllerMappingSteamControllerSelected();
     void enableAnalogStickMappingChanged();
+    void controllerRemapChanged();
+    void buttonCaptured(const QString &binding);
     void discoveryEnabledChanged();
     void hostsChanged();
     void hiddenHostsChanged();
@@ -291,6 +304,7 @@ private:
 
     Settings *settings = {};
     QmlSettings *settings_qml = {};
+    NLForkUpdater *nlfork_updater = {};
     QmlMainWindow *window = {};
     StreamSession *session = {};
     QThread *frame_thread = {};
