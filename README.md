@@ -18,6 +18,11 @@
 </p>
 
 <p align="center">
+  <img src="docs/screenshots/demo.webp" alt="God of War Ragnarök streamed from a PS5 with NLFork at 1440p" width="800"><br>
+  <sub>PS5 → PC over Remote Play with NLFork, recorded at 1440p. / <i>PS5 → PC con NLFork, grabado a 1440p.</i></sub>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/home-en.png" alt="NLFork home screen" width="800">
 </p>
 
