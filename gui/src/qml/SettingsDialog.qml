@@ -988,6 +988,40 @@ DialogView {
 
                     Label {
                         Layout.alignment: Qt.AlignRight
+                        text: qsTr("Send picture to PushFPS:")
+                    }
+
+                    C.CheckBox {
+                        text: qsTr("In PushFPS choose Other app, then NLFork")
+                        checked: Chiaki.settings.pushFpsOutput
+                        onToggled: Chiaki.settings.pushFpsOutput = checked
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(Unchecked)")
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("PushFPS picture size:")
+                    }
+
+                    C.ComboBox {
+                        Layout.preferredWidth: 400
+                        model: [qsTr("Screen size"), "1080p", "1440p", "4K"]
+                        enabled: Chiaki.settings.pushFpsOutput
+                        currentIndex: Chiaki.settings.pushFpsOutputSize
+                        onActivated: (index) => Chiaki.settings.pushFpsOutputSize = index
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        text: qsTr("(Screen size)")
+                    }
+
+                    Label {
+                        Layout.alignment: Qt.AlignRight
                         text: qsTr("Frame Delivery:")
                     }
 

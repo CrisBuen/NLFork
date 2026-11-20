@@ -587,5 +587,10 @@
 "registered": "registrada",
 "remote connection via PSN": "conexión remota por PSN",
 "unregistered": "sin registrar",
-"username, case-sensitive": "nombre de usuario, distingue mayúsculas"
+"username, case-sensitive": "nombre de usuario, distingue mayúsculas",
+"Send picture to PushFPS:": "Enviar imagen a PushFPS:",
+"In PushFPS choose Other app, then NLFork": "En PushFPS elige Otra app y luego NLFork",
+"PushFPS picture size:": "Tamaño de la imagen para PushFPS:",
+"Screen size": "Tamaño de la pantalla",
+"(Screen size)": "(Tamaño de la pantalla)"
 }

@@ -135,6 +135,28 @@ void QmlSettings::setStreamerMode(bool enabled)
     emit streamerModeChanged();
 }
 
+bool QmlSettings::pushFpsOutput() const
+{
+    return settings->GetPushFpsOutput();
+}
+
+void QmlSettings::setPushFpsOutput(bool enabled)
+{
+    settings->SetPushFpsOutput(enabled);
+    emit pushFpsOutputChanged();
+}
+
+int QmlSettings::pushFpsOutputSize() const
+{
+    return settings->GetPushFpsOutputSize();
+}
+
+void QmlSettings::setPushFpsOutputSize(int size)
+{
+    settings->SetPushFpsOutputSize(size);
+    emit pushFpsOutputSizeChanged();
+}
+
 float QmlSettings::hapticOverride() const
 {
     return settings->GetHapticOverride();
@@ -1913,6 +1935,8 @@ void QmlSettings::refreshAllKeys()
     emit showStreamStatsChanged();
     emit autoReconnectChanged();
     emit streamerModeChanged();
+    emit pushFpsOutputChanged();
+    emit pushFpsOutputSizeChanged();
 #ifdef CHIAKI_GUI_ENABLE_STEAMDECK_NATIVE
     emit verticalDeckChanged();
     emit steamDeckHapticsChanged();

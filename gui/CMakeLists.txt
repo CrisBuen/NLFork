@@ -28,6 +28,9 @@ set(SOURCE_FILES
 	src/streamsession.cpp
 	include/sessionlog.h
 	src/sessionlog.cpp
+	include/pushfps/FrameInput.h
+	include/pushfpsoutput.h
+	src/pushfpsoutput.cpp
 	include/settings.h
 	src/settings.cpp
 	include/host.h

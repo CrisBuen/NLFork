@@ -38,6 +38,8 @@ extern "C" {
 Q_DECLARE_LOGGING_CATEGORY(chiakiGui);
 
 class Settings;
+class PushFpsOutput;
+class PushFpsReadbackThread;
 class StreamSession;
 class QmlBackend;
 class QOffscreenSurface;
@@ -49,6 +51,7 @@ class QVBoxLayout;
 class QHBoxLayout;
 class QFrame;
 class StatsOverlayWidget;
+class SessionTelemetry;
 class BufferedPlaybackPacerThread;
 class DeferredPresentPacerThread;
 class DeferredSwapThread;
@@ -111,6 +114,11 @@ public:
     bool hasVideo() const;
     int droppedFrames() const;
     int renderHitchCount() const { return render_hitch_count; }
+    // NLFork telemetry: per-interval counters, reset on read
+    int takeTelemetryFrames() { return telemetry_frames.fetchAndStoreRelaxed(0); }
+    qint64 takeTelemetryHandoffMaxUs() { return telemetry_handoff_max_us.fetchAndStoreRelaxed(0); }
+    int lastFrameWidth() const { return last_frame_width.loadRelaxed(); }
+    int lastFrameHeight() const { return last_frame_height.loadRelaxed(); }
     void increaseDroppedFrames();
 
     bool directStream() const;
@@ -166,6 +174,7 @@ public slots:
     void queuePlaceboReset(bool preserve_timeline);
 
     void updatePlacebo();
+    void updatePushFpsOutput();
     void updateVSync();
     void updateVulkanDeferredSwap();
     void show();
@@ -199,6 +208,11 @@ private:
 
     void init(Settings *settings, bool exit_app_on_stream_exit = false);
     pl_gpu placeboGpu() const;
+    // NLFork: PushFPS output (render thread only)
+    // content_pts_s: the frame's time on the decoder's stream clock (< 0 unknown);
+    // ready_us: when it was decoded (monotonic us, 0 unknown)
+    void sendPushFpsFrame(const struct pl_frame *source, struct pl_render_params params, double content_pts_s, qint64 ready_us);
+    void closePushFpsOutput();
     void update();
     void scheduleUpdate(bool force = false);
     void scheduleUpdate(bool force, UpdateRequestReason reason);
@@ -320,6 +334,10 @@ private:
     int grab_input = 0;
     int dropped_frames = 0;
     int render_hitch_count = 0;
+    QAtomicInteger<int> telemetry_frames = 0;
+    QAtomicInteger<qint64> telemetry_handoff_max_us = 0;
+    QAtomicInteger<int> last_frame_width = 0;
+    QAtomicInteger<int> last_frame_height = 0;
     bool is_window_adjustable = false;
     bool is_stream_window_adjustable = false;
     QAtomicInteger<int> dropped_frames_current = 0;
@@ -411,6 +429,36 @@ private:
     QAtomicInteger<int> startup_video_visible_refresh_pending = 0;
     QAtomicInteger<int> stats_overlay_active = 0;
     StatsOverlayWidget *stats_overlay_widget = nullptr;
+    SessionTelemetry *session_telemetry = nullptr;
+    // NLFork: picture sent to PushFPS. The two settings are written on the GUI thread and read
+    // by the render thread, which alone owns the channel, the renderer and the texture.
+    QAtomicInteger<int> pushfps_output_enabled = 0;
+    QAtomicInteger<int> pushfps_output_size = 0;
+    PushFpsOutput *pushfps_output = nullptr;
+    PushFpsReadbackThread *pushfps_readback = nullptr;
+    std::array<pl_buf, 3> pushfps_bufs{};
+    int pushfps_next_buf = 0;
+    bool pushfps_async_disabled = false;
+    quint64 pushfps_stats_busy_skips = 0;
+    pl_renderer pushfps_renderer = {};
+    pl_tex pushfps_tex = {};
+    uint64_t pushfps_last_signature = 0;
+    bool pushfps_have_signature = false;
+    quint64 pushfps_direct_generation = 0;
+    quint64 pushfps_direct_sent_generation = 0;
+    // Stream clock and decode time of the direct-path frame: pending ones under direct_frame_mutex,
+    // the mapped one on the render thread
+    double direct_pending_pts = -1.0;
+    qint64 direct_pending_ready_us = 0;
+    double direct_frame_pts = -1.0;
+    qint64 direct_frame_ready_us = 0;
+    bool pushfps_discontinuity = true;
+    qint64 pushfps_open_retry_us = 0;
+    qint64 pushfps_stats_since_us = 0;
+    quint64 pushfps_stats_frames = 0;
+    quint64 pushfps_stats_failures = 0;
+    qint64 pushfps_stats_work_us = 0;
+    qint64 pushfps_stats_work_max_us = 0;
     bool stats_overlay_visible = false;
     QAtomicInteger<quint64> startup_video_visible_generation = 0;
     bool startup_warmup_frame_active = false;

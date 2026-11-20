@@ -33,6 +33,8 @@ class QmlSettings : public QObject
     Q_PROPERTY(bool showStreamStats READ showStreamStats WRITE setShowStreamStats NOTIFY showStreamStatsChanged)
     Q_PROPERTY(bool autoReconnect READ autoReconnect WRITE setAutoReconnect NOTIFY autoReconnectChanged)
     Q_PROPERTY(bool streamerMode READ streamerMode WRITE setStreamerMode NOTIFY streamerModeChanged)
+    Q_PROPERTY(bool pushFpsOutput READ pushFpsOutput WRITE setPushFpsOutput NOTIFY pushFpsOutputChanged)
+    Q_PROPERTY(int pushFpsOutputSize READ pushFpsOutputSize WRITE setPushFpsOutputSize NOTIFY pushFpsOutputSizeChanged)
     Q_PROPERTY(float hapticOverride READ hapticOverride WRITE setHapticOverride NOTIFY hapticOverrideChanged)
     Q_PROPERTY(int displayTargetContrast READ displayTargetContrast WRITE setDisplayTargetContrast NOTIFY displayTargetContrastChanged)
     Q_PROPERTY(int displayTargetPeak READ displayTargetPeak WRITE setDisplayTargetPeak NOTIFY displayTargetPeakChanged)
@@ -188,6 +190,11 @@ public:
 
     bool streamerMode() const;
     void setStreamerMode(bool enabled);
+
+    bool pushFpsOutput() const;
+    void setPushFpsOutput(bool enabled);
+    int pushFpsOutputSize() const;
+    void setPushFpsOutputSize(int size);
 
     int displayTargetContrast() const;
     void setDisplayTargetContrast(int contrast);
@@ -661,6 +668,8 @@ signals:
     void showStreamStatsChanged();
     void autoReconnectChanged();
     void streamerModeChanged();
+    void pushFpsOutputChanged();
+    void pushFpsOutputSizeChanged();
     void fpsLocalPS4Changed();
     void fpsRemotePS4Changed();
     void fpsLocalPS5Changed();

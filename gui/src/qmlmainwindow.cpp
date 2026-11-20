@@ -5,6 +5,11 @@
 #include "chiaki/time.h"
 #include "streamsession.h"
 #include "controllermanager.h"
+#include "sessionlog.h"
+#include "pushfpsoutput.h"
+#include <QDir>
+#include <QDateTime>
+#include <QFileInfo>
 
 #include <qpa/qplatformnativeinterface.h>
 
@@ -31,7 +36,9 @@ extern "C" {
 #include <QStandardPaths>
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QScreen>
 #include <QFile>
+#include <cstring>
 #include <QWidget>
 #include <QLabel>
 #include <QVBoxLayout>
@@ -332,6 +339,276 @@ private:
     QLabel *packetLossValue = nullptr;
     QLabel *droppedFramesValue = nullptr;
     QLabel *lostFramesValue = nullptr;
+};
+
+// NLFork: writes one CSV row per second while a stream session is open, so a session can be
+// followed live (tail the file) and analysed afterwards. Files go to <log dir>/telemetry and
+// only the newest ones are kept. Set NLFORK_TELEMETRY=0 to turn it off.
+class SessionTelemetry final : public QObject
+{
+public:
+    SessionTelemetry(QmlMainWindow *owner, QmlBackend *backend)
+        : QObject(owner), owner(owner)
+    {
+        enabled = qEnvironmentVariable("NLFORK_TELEMETRY") != QStringLiteral("0");
+        timer.setInterval(1000);
+        timer.setTimerType(Qt::PreciseTimer);
+        connect(&timer, &QTimer::timeout, this, &SessionTelemetry::sample);
+        if (backend) {
+            connect(backend, &QmlBackend::sessionChanged, this, &SessionTelemetry::setSession);
+            setSession(backend->qmlSession());
+        }
+    }
+
+    ~SessionTelemetry() override { finish(); }
+
+private:
+    void setSession(StreamSession *s)
+    {
+        if (s == session)
+            return;
+        finish();
+        session = s;
+        if (!session || !enabled)
+            return;
+
+        const QString dir_path = GetLogBaseDir() + QStringLiteral("/telemetry");
+        QDir dir;
+        if (!dir.mkpath(dir_path))
+            return;
+        pruneOldFiles(dir_path);
+        file.setFileName(dir_path + QStringLiteral("/nlfork_telemetry_%1.csv")
+            .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd_HH-mm-ss"))));
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
+            return;
+        write(QStringLiteral("# NLFork %1 telemetry, host %2, started %3\n")
+            .arg(QCoreApplication::applicationVersion(), session->GetHost(),
+                 QDateTime::currentDateTime().toString(Qt::ISODate)));
+        write(QStringLiteral("time,elapsed_s,connected,width,height,fps,bitrate_mbps,packet_loss_pct,rtt_ms,"
+                             "frames_lost,dropped_frames,queue_depth,pending_age_ms,gui_handoff_max_ms,"
+                             "net_hitches,recv_stalls,render_hitches,controller_hitches\n"));
+        clock.start();
+        owner->takeTelemetryFrames();
+        owner->takeTelemetryHandoffMaxUs();
+        base_frames_lost = session->GetFramesLost();
+        base_dropped = owner->droppedFrames();
+        base_net = session->GetNetworkHitches();
+        base_stalls = session->GetReceiveStalls();
+        base_render = owner->renderHitchCount();
+        base_controller = ControllerManager::GetInstance()->PollHitchCount();
+        rows = 0;
+        timer.start();
+    }
+
+    void sample()
+    {
+        if (!session) {
+            finish();
+            return;
+        }
+        if (!file.isOpen())
+            return;
+        const double elapsed = clock.elapsed() / 1000.0;
+        const int frames = owner->takeTelemetryFrames();
+        const qint64 handoff_us = owner->takeTelemetryHandoffMaxUs();
+        const int frames_lost = session->GetFramesLost();
+        const int dropped = owner->droppedFrames();
+        const int net = session->GetNetworkHitches();
+        const int stalls = session->GetReceiveStalls();
+        const int render = owner->renderHitchCount();
+        const int controller = ControllerManager::GetInstance()->PollHitchCount();
+        // Per-second deltas: a non-zero value pins down the exact second something went wrong
+        write(QStringLiteral("%1,%2,%3,%4,%5,%6,%7,%8,%9,%10,%11,%12,%13,%14,%15,%16,%17,%18\n")
+            .arg(QTime::currentTime().toString(QStringLiteral("HH:mm:ss")))
+            .arg(elapsed, 0, 'f', 1)
+            .arg(session->GetConnected() ? 1 : 0)
+            .arg(owner->lastFrameWidth())
+            .arg(owner->lastFrameHeight())
+            .arg(frames)
+            .arg(session->GetMeasuredBitrate(), 0, 'f', 2)
+            .arg(session->GetAveragePacketLoss() * 100.0, 0, 'f', 2)
+            .arg(session->GetRttMs(), 0, 'f', 1)
+            .arg(frames_lost - base_frames_lost)
+            .arg(dropped - base_dropped)
+            .arg(owner->queueDepthAverage(), 0, 'f', 2)
+            .arg(owner->pendingFrameAge() * 1000.0, 0, 'f', 1)
+            .arg(handoff_us / 1000.0, 0, 'f', 1)
+            .arg(net - base_net)
+            .arg(stalls - base_stalls)
+            .arg(render - base_render)
+            .arg(controller - base_controller));
+        base_frames_lost = frames_lost;
+        base_dropped = dropped;
+        base_net = net;
+        base_stalls = stalls;
+        base_render = render;
+        base_controller = controller;
+        rows++;
+    }
+
+    void finish()
+    {
+        timer.stop();
+        if (file.isOpen()) {
+            write(QStringLiteral("# ended after %1 s, %2 rows\n").arg(clock.elapsed() / 1000.0, 0, 'f', 1).arg(rows));
+            file.close();
+        }
+        session = nullptr;
+    }
+
+    void write(const QString &line)
+    {
+        file.write(line.toUtf8());
+        file.flush();
+    }
+
+    static void pruneOldFiles(const QString &dir_path)
+    {
+        QDir dir(dir_path);
+        const QFileInfoList files = dir.entryInfoList({QStringLiteral("nlfork_telemetry_*.csv")}, QDir::Files, QDir::Time);
+        for (int i = 29; i < files.size(); i++)
+            QFile::remove(files[i].absoluteFilePath());
+    }
+
+    QmlMainWindow *owner;
+    QPointer<StreamSession> session;
+    QFile file;
+    QTimer timer;
+    QElapsedTimer clock;
+    bool enabled = true;
+    int rows = 0;
+    int base_frames_lost = 0;
+    int base_dropped = 0;
+    int base_net = 0;
+    int base_stalls = 0;
+    int base_render = 0;
+    int base_controller = 0;
+};
+
+// NLFork: finishes PushFPS frames off the render thread. The render thread renders the picture and
+// starts an asynchronous GPU download into a host-mapped buffer; this thread waits for that copy,
+// moves the pixels into the PushFPS channel and frees the buffer. Needs a thread-safe pl_gpu
+// (Vulkan); OpenGL keeps the synchronous path.
+class PushFpsReadbackThread final : public QThread
+{
+public:
+    PushFpsReadbackThread(pl_gpu gpu, PushFpsOutput *output) : gpu(gpu), output(output) {}
+
+    // Render thread: whether buffer `index` may be written again
+    bool bufferFree(int index)
+    {
+        QMutexLocker locker(&mutex);
+        return !busy[index];
+    }
+    void submit(int index, pl_buf buf, int width, int height, bool discontinuity, int64_t arrival_100ns, int64_t content_100ns)
+    {
+        QMutexLocker locker(&mutex);
+        busy[index] = true;
+        jobs.push_back({index, buf, width, height, discontinuity, arrival_100ns, content_100ns});
+        cond.wakeOne();
+    }
+    void stopAndWait()
+    {
+        {
+            QMutexLocker locker(&mutex);
+            stopping = true;
+            cond.wakeAll();
+        }
+        wait();
+    }
+    // Average and worst decode -> PushFPS time since the last call, in ms
+    double takeHeldAvgMs()
+    {
+        const qint64 n = held_count.fetchAndStoreRelaxed(0);
+        const qint64 sum = held_sum_us.fetchAndStoreRelaxed(0);
+        return n > 0 ? (double(sum) / double(n)) / 1000.0 : 0.0;
+    }
+    double takeHeldMaxMs() { return double(held_max_us.fetchAndStoreRelaxed(0)) / 1000.0; }
+    quint64 takeCopied() { return copied.fetchAndStoreRelaxed(0); }
+    quint64 takeFailed() { return failed.fetchAndStoreRelaxed(0); }
+    qint64 takeCopyMaxUs() { return copy_max_us.fetchAndStoreRelaxed(0); }
+
+protected:
+    void run() override
+    {
+        for (;;) {
+            Job job;
+            {
+                QMutexLocker locker(&mutex);
+                while (jobs.empty() && !stopping)
+                    cond.wait(&mutex);
+                if (stopping)
+                    return;
+                job = jobs.front();
+                jobs.pop_front();
+            }
+            const qint64 begin_us = static_cast<qint64>(chiaki_time_now_monotonic_us());
+            // Wait for the GPU copy in 2 ms steps (gives up after about a second)
+            bool ready = true;
+            for (int step = 0; pl_buf_poll(gpu, job.buf, 2000000); step++) {
+                if (step >= 500 || isStopping()) {
+                    ready = false;
+                    break;
+                }
+            }
+            bool sent = false;
+            if (ready && job.buf->data) {
+                if (uint8_t *dst = output->beginFrame(static_cast<uint32_t>(job.width), static_cast<uint32_t>(job.height))) {
+                    std::memcpy(dst, job.buf->data, static_cast<size_t>(job.width) * static_cast<size_t>(job.height) * 4u);
+                    output->commitFrame(job.arrival_100ns, job.discontinuity, job.content_100ns);
+                    sent = true;
+                    // How long NLFork held the picture: decoded -> handed to PushFPS
+                    if (job.arrival_100ns > 0) {
+                        const qint64 held_us = (PushFpsOutput::nowTimestamp100ns() - job.arrival_100ns) / 10;
+                        if (held_us >= 0 && held_us < 1000000) {
+                            held_sum_us.fetchAndAddRelaxed(held_us);
+                            held_count.fetchAndAddRelaxed(1);
+                            qint64 prev_held = held_max_us.loadRelaxed();
+                            while (held_us > prev_held && !held_max_us.testAndSetRelaxed(prev_held, held_us, prev_held)) {}
+                        }
+                    }
+                }
+            }
+            if (sent)
+                copied.fetchAndAddRelaxed(1);
+            else
+                failed.fetchAndAddRelaxed(1);
+            const qint64 took_us = static_cast<qint64>(chiaki_time_now_monotonic_us()) - begin_us;
+            qint64 prev = copy_max_us.loadRelaxed();
+            while (took_us > prev && !copy_max_us.testAndSetRelaxed(prev, took_us, prev)) {}
+            QMutexLocker locker(&mutex);
+            busy[job.index] = false;
+        }
+    }
+
+private:
+    struct Job {
+        int index = 0;
+        pl_buf buf = nullptr;
+        int width = 0;
+        int height = 0;
+        bool discontinuity = false;
+        int64_t arrival_100ns = 0;  // 0 = when the copy is done
+        int64_t content_100ns = -1; // stream clock, -1 unknown
+    };
+    bool isStopping()
+    {
+        QMutexLocker locker(&mutex);
+        return stopping;
+    }
+    pl_gpu gpu;
+    PushFpsOutput *output;
+    QMutex mutex;
+    QWaitCondition cond;
+    std::deque<Job> jobs;
+    bool busy[3] = {false, false, false};
+    bool stopping = false;
+    QAtomicInteger<quint64> copied = 0;
+    QAtomicInteger<quint64> failed = 0;
+    QAtomicInteger<qint64> copy_max_us = 0;
+    QAtomicInteger<qint64> held_sum_us = 0;
+    QAtomicInteger<qint64> held_count = 0;
+    QAtomicInteger<qint64> held_max_us = 0;
 };
 
 class DeferredPresentPacerThread final : public QThread
@@ -2699,8 +2976,22 @@ QmlMainWindow::~QmlMainWindow()
     }
 #endif
 
+    if (pushfps_readback) {
+        pushfps_readback->stopAndWait();
+        delete pushfps_readback;
+        pushfps_readback = nullptr;
+    }
+    if (pushfps_output) {
+        pushfps_output->close();
+        delete pushfps_output;
+        pushfps_output = nullptr;
+    }
     if (pl_gpu gpu = placeboGpu()) {
         pl_unmap_avframe(gpu, &direct_frame);
+        for (auto &buf : pushfps_bufs)
+            pl_buf_destroy(gpu, &buf);
+        if (pushfps_tex)
+            pl_tex_destroy(gpu, &pushfps_tex);
         if (quick_tex)
             pl_tex_destroy(gpu, &quick_tex);
         for (auto &tex : placebo_tex)
@@ -2760,6 +3051,7 @@ QmlMainWindow::~QmlMainWindow()
     pl_cache_destroy(&placebo_cache);
     pl_queue_destroy(&placebo_queue);
     pl_renderer_destroy(&placebo_renderer);
+    pl_renderer_destroy(&pushfps_renderer);
     // User shader hooks hold a reference to the GPU (their descriptors destroy
     // buffers/textures via p->gpu), so they must be released before the GPU is.
     pl_mpv_user_shader_destroy(&fsr_hook);
@@ -3165,6 +3457,9 @@ void QmlMainWindow::presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, q
     const qint64 present_entry_us = static_cast<qint64>(chiaki_time_now_monotonic_us());
     if (decoder_delivery_us > 0 && present_entry_us >= decoder_delivery_us) {
         const qint64 gui_handoff_us = present_entry_us - decoder_delivery_us;
+        qint64 handoff_max = telemetry_handoff_max_us.loadRelaxed();
+        while (gui_handoff_us > handoff_max
+               && !telemetry_handoff_max_us.testAndSetOrdered(handoff_max, gui_handoff_us, handoff_max)) {}
         // Always logged (rare): the GUI thread was blocked, e.g. compiling shaders, so the
         // picture froze even though the network and the decoder were fine.
         if (gui_handoff_us >= 50000) {
@@ -3184,6 +3479,10 @@ void QmlMainWindow::presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, q
     if (!frame.frame)
         return;
 
+    telemetry_frames.fetchAndAddRelaxed(1);
+    last_frame_width.storeRelaxed(frame.frame->width);
+    last_frame_height.storeRelaxed(frame.frame->height);
+
     if (bypass_frame_queue) {
         {
             QMutexLocker locker(&direct_frame_mutex);
@@ -3192,6 +3491,8 @@ void QmlMainWindow::presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, q
                 dropped_frames_current.fetchAndAddRelaxed(1);
             }
             direct_pending_frame = frame.frame;
+            direct_pending_pts = frame.pts;
+            direct_pending_ready_us = decoder_delivery_us > 0 ? decoder_delivery_us : present_entry_us;
         }
         if (!startup_warmup_frame_active)
             startup_first_real_frame_queued_pending_visibility.storeRelease(1);
@@ -5320,9 +5621,11 @@ renderer_backend_ready:
         qml_engine->setIncubationController(quick_window->incubationController());
     connect(qml_engine, &QQmlEngine::quit, this, &QWindow::close);
     applyLanguage(settings->GetLanguage());
+    updatePushFpsOutput();
 
     backend = new QmlBackend(settings, this);
     stats_overlay_widget = new StatsOverlayWidget(this, backend);
+    session_telemetry = new SessionTelemetry(this, backend);
     connect(backend, &QmlBackend::sessionChanged, this, [this, exit_app_on_stream_exit](StreamSession *s) {
         const bool preserve_startup_warmup = s && startup_warmup_preserve_next_session_change;
         startup_warmup_preserve_next_session_change = false;
@@ -6083,6 +6386,281 @@ void QmlMainWindow::updatePlacebo()
     schedule_frame_mixer_active.storeRelaxed(configuredFrameMixerEnabledForScheduling() ? 1 : 0);
 }
 
+void QmlMainWindow::updatePushFpsOutput()
+{
+    if (!settings)
+        return;
+    pushfps_output_size.storeRelease(settings->GetPushFpsOutputSize());
+    pushfps_output_enabled.storeRelease(settings->GetPushFpsOutput() ? 1 : 0);
+}
+
+void QmlMainWindow::closePushFpsOutput()
+{
+    // The readback thread writes into the channel, so it stops first
+    if (pushfps_readback) {
+        pushfps_readback->stopAndWait();
+        delete pushfps_readback;
+        pushfps_readback = nullptr;
+    }
+    if (pl_gpu gpu = placeboGpu()) {
+        for (auto &buf : pushfps_bufs)
+            pl_buf_destroy(gpu, &buf);
+    }
+    if (!pushfps_output || !pushfps_output->isOpen())
+        return;
+    qCInfo(chiakiGui).nospace() << "[pushfps] output closed after " << pushfps_output->framesSent() << " frames";
+    pushfps_output->close();
+    pushfps_have_signature = false;
+    pushfps_stats_since_us = 0;
+}
+
+// Renders `source` a second time, without frame mixing and without the on-screen overlays, into
+// an RGBA8 texture of the chosen size with the same render settings as the window, and hands the
+// pixels to PushFPS. Runs on the render thread after the window's own frame was submitted, so the
+// window's latency is unchanged; the download waits for the GPU (a few ms per stream frame).
+void QmlMainWindow::sendPushFpsFrame(const struct pl_frame *source, struct pl_render_params params, double content_pts_s, qint64 ready_us)
+{
+    // Times for the PushFPS clock: decode time (QueryPerformanceCounter based, like PushFPS)
+    // and the decoder's steady stream clock, both in 100 ns
+    const int64_t arrival_100ns = ready_us > 0 ? static_cast<int64_t>(ready_us) * 10 : 0;
+    const int64_t content_100ns = std::isfinite(content_pts_s) && content_pts_s >= 0.0
+        ? static_cast<int64_t>(llround(content_pts_s * 1e7)) : -1;
+    pl_gpu gpu = placeboGpu();
+    if (!gpu || !source || source->num_planes <= 0 || !source->planes[0].texture)
+        return;
+    const qint64 begin_us = static_cast<qint64>(chiaki_time_now_monotonic_us());
+
+    if (!pushfps_output)
+        pushfps_output = new PushFpsOutput();
+    const double interval_ms = stream_configured_frame_interval_ms > 0.0 ? stream_configured_frame_interval_ms : 16.6667;
+    const uint32_t fps = static_cast<uint32_t>(qBound(1, qRound(1000.0 / interval_ms), 240));
+    if (!pushfps_output->isOpen()) {
+        if (pushfps_open_retry_us > 0 && begin_us < pushfps_open_retry_us)
+            return;
+        if (!pushfps_output->open(fps, 1, "NLFork")) {
+            qCWarning(chiakiGui) << "[pushfps] could not create the PushFPS channel; retrying in 5 s";
+            pushfps_open_retry_us = begin_us + 5000000;
+            return;
+        }
+        pushfps_open_retry_us = 0;
+        pushfps_discontinuity = true;
+        qCInfo(chiakiGui).nospace() << "[pushfps] output opened (channel default, " << fps << " fps)";
+    } else {
+        pushfps_output->setFps(fps, 1);
+    }
+
+    // Output size: the screen's own (fitted into 4K) or a fixed 16:9 size
+    int out_w = 0, out_h = 0;
+    switch (pushfps_output_size.loadAcquire()) {
+    case 1: out_w = 1920; out_h = 1080; break;
+    case 2: out_w = 2560; out_h = 1440; break;
+    case 3: out_w = 3840; out_h = 2160; break;
+    default: {
+        QScreen *s = screen();
+        const qreal dpr = s ? s->devicePixelRatio() : 1.0;
+        out_w = s ? qRound(s->size().width() * dpr) : 1920;
+        out_h = s ? qRound(s->size().height() * dpr) : 1080;
+        break;
+    }
+    }
+    if (out_w <= 0 || out_h <= 0) {
+        out_w = 1920;
+        out_h = 1080;
+    }
+    if (out_w > static_cast<int>(PushFpsOutput::kMaxWidth) || out_h > static_cast<int>(PushFpsOutput::kMaxHeight)) {
+        const double scale = qMin(double(PushFpsOutput::kMaxWidth) / out_w, double(PushFpsOutput::kMaxHeight) / out_h);
+        out_w = qMax(2, int(out_w * scale)) & ~1;
+        out_h = qMax(2, int(out_h * scale)) & ~1;
+    }
+
+    if (!pushfps_tex || pushfps_tex->params.w != out_w || pushfps_tex->params.h != out_h) {
+        pl_fmt fmt = pl_find_named_fmt(gpu, "rgba8");
+        if (!fmt || !(fmt->caps & PL_FMT_CAP_RENDERABLE) || !(fmt->caps & PL_FMT_CAP_HOST_READABLE)) {
+            qCWarning(chiakiGui) << "[pushfps] the GPU has no readable rgba8 render target";
+            pushfps_stats_failures++;
+            return;
+        }
+        struct pl_tex_params tex_params = {};
+        tex_params.w = out_w;
+        tex_params.h = out_h;
+        tex_params.format = fmt;
+        tex_params.renderable = true;
+        tex_params.host_readable = true;
+        tex_params.debug_tag = PL_DEBUG_TAG;
+        if (!pl_tex_recreate(gpu, &pushfps_tex, &tex_params)) {
+            qCWarning(chiakiGui) << "[pushfps] could not create the output texture" << out_w << "x" << out_h;
+            pushfps_stats_failures++;
+            return;
+        }
+        pushfps_discontinuity = true;
+    }
+    if (!pushfps_renderer)
+        pushfps_renderer = pl_renderer_create(placebo_log, gpu);
+    if (!pushfps_renderer)
+        return;
+
+    struct pl_frame target = {};
+    target.num_planes = 1;
+    target.planes[0].texture = pushfps_tex;
+    target.planes[0].components = 4;
+    target.planes[0].component_mapping[0] = PL_CHANNEL_R;
+    target.planes[0].component_mapping[1] = PL_CHANNEL_G;
+    target.planes[0].component_mapping[2] = PL_CHANNEL_B;
+    target.planes[0].component_mapping[3] = PL_CHANNEL_A;
+    target.repr = pl_color_repr_rgb;
+    target.color = pl_color_space_srgb;
+
+    // Keep the picture's shape (black bars if the stream and the output differ)
+    float src_w = fabsf(pl_rect_w(source->crop));
+    float src_h = fabsf(pl_rect_h(source->crop));
+    if (src_w <= 0.0f || src_h <= 0.0f) {
+        src_w = static_cast<float>(source->planes[0].texture->params.w);
+        src_h = static_cast<float>(source->planes[0].texture->params.h);
+    }
+    target.crop = {0.0f, 0.0f, static_cast<float>(out_w), static_cast<float>(out_h)};
+    if (src_w > 0.0f && src_h > 0.0f) {
+        const float fit = qMin(out_w / src_w, out_h / src_h);
+        const float w = src_w * fit, h = src_h * fit;
+        target.crop.x0 = (out_w - w) * 0.5f;
+        target.crop.y0 = (out_h - h) * 0.5f;
+        target.crop.x1 = target.crop.x0 + w;
+        target.crop.y1 = target.crop.y0 + h;
+    }
+
+    // The window's settings, with the spatial upscaler chosen for this output's scale
+    params.frame_mixer = nullptr;
+    params.background_transparency = 0.0f;
+    params.hooks = nullptr;
+    params.num_hooks = 0;
+    const struct pl_hook *hooks[1 + max_custom_shaders];
+    int num_hooks = 0;
+    if (src_w > 0.0f && src_h > 0.0f) {
+        const float upscale_factor = qMin((target.crop.x1 - target.crop.x0) / src_w, (target.crop.y1 - target.crop.y0) / src_h);
+        if (const struct pl_hook *spatial = select_spatial_hook(video_preset, settings->GetPlaceboUpscaler(), upscale_factor,
+                                                                fsr_hook, fsrcnnx_hook_8, fsrcnnx_hook_16))
+            hooks[num_hooks++] = spatial;
+    }
+    for (const struct pl_hook *hook : std::as_const(custom_hooks))
+        if (num_hooks < static_cast<int>(1 + max_custom_shaders))
+            hooks[num_hooks++] = hook;
+    if (num_hooks > 0) {
+        params.hooks = hooks;
+        params.num_hooks = num_hooks;
+    }
+
+    // Asynchronous readback when the GPU allows it: the render thread only starts the copy
+    const size_t frame_bytes = static_cast<size_t>(out_w) * static_cast<size_t>(out_h) * 4u;
+    const bool async_readback = !pushfps_async_disabled && gpu->limits.thread_safe && gpu->limits.max_mapped_size >= frame_bytes;
+    int buf_index = -1;
+    if (async_readback) {
+        if (!pushfps_readback) {
+            pushfps_readback = new PushFpsReadbackThread(gpu, pushfps_output);
+            pushfps_readback->start(QThread::HighPriority);
+        }
+        for (int i = 0; i < static_cast<int>(pushfps_bufs.size()); i++) {
+            const int candidate = (pushfps_next_buf + i) % static_cast<int>(pushfps_bufs.size());
+            if (pushfps_readback->bufferFree(candidate)) {
+                buf_index = candidate;
+                break;
+            }
+        }
+        if (buf_index < 0) {
+            // PushFPS is still taking the earlier pictures: skip this one rather than wait
+            pushfps_stats_busy_skips++;
+            return;
+        }
+        pl_buf &buf = pushfps_bufs[buf_index];
+        if (!buf || buf->params.size != frame_bytes) {
+            struct pl_buf_params buf_params = {};
+            buf_params.size = frame_bytes;
+            buf_params.host_readable = true;
+            buf_params.host_mapped = true;
+            buf_params.memory_type = PL_BUF_MEM_HOST;
+            buf_params.debug_tag = PL_DEBUG_TAG;
+            if (!pl_buf_recreate(gpu, &buf, &buf_params) || !buf->data) {
+                qCWarning(chiakiGui) << "[pushfps] could not create a readback buffer; using the synchronous copy";
+                // Only one thread may write into the channel: stop the readback thread for good
+                pushfps_async_disabled = true;
+                pushfps_readback->stopAndWait();
+                delete pushfps_readback;
+                pushfps_readback = nullptr;
+                for (auto &b : pushfps_bufs)
+                    pl_buf_destroy(gpu, &b);
+                buf_index = -1;
+            }
+        }
+    }
+
+    bool ok = pl_render_image(pushfps_renderer, source, &target, &params);
+    if (ok && buf_index >= 0) {
+        struct pl_tex_transfer_params transfer = {};
+        transfer.tex = pushfps_tex;
+        transfer.buf = pushfps_bufs[buf_index];
+        transfer.row_pitch = static_cast<size_t>(out_w) * 4u;
+        ok = pl_tex_download(gpu, &transfer);
+        if (ok) {
+            pl_gpu_flush(gpu);
+            pushfps_readback->submit(buf_index, pushfps_bufs[buf_index], out_w, out_h, pushfps_discontinuity, arrival_100ns, content_100ns);
+            pushfps_discontinuity = false;
+            pushfps_next_buf = (buf_index + 1) % static_cast<int>(pushfps_bufs.size());
+        }
+    } else if (ok) {
+        uint8_t *pixels = pushfps_output->beginFrame(static_cast<uint32_t>(out_w), static_cast<uint32_t>(out_h));
+        ok = pixels != nullptr;
+        if (ok) {
+            struct pl_tex_transfer_params transfer = {};
+            transfer.tex = pushfps_tex;
+            transfer.ptr = pixels;
+            transfer.row_pitch = static_cast<size_t>(out_w) * 4u;
+            transfer.no_import = true;
+            ok = pl_tex_download(gpu, &transfer);
+            if (ok) {
+                pushfps_output->commitFrame(arrival_100ns, pushfps_discontinuity, content_100ns);
+                pushfps_discontinuity = false;
+            } else {
+                pushfps_output->cancelFrame();
+            }
+        }
+    }
+
+    const qint64 end_us = static_cast<qint64>(chiaki_time_now_monotonic_us());
+    const qint64 work_us = qMax<qint64>(0, end_us - begin_us);
+    if (ok)
+        pushfps_stats_frames++;
+    else
+        pushfps_stats_failures++;
+    pushfps_stats_work_us += work_us;
+    pushfps_stats_work_max_us = qMax(pushfps_stats_work_max_us, work_us);
+    if (pushfps_stats_since_us == 0)
+        pushfps_stats_since_us = end_us;
+    if (end_us - pushfps_stats_since_us >= 10000000) {
+        const quint64 n = pushfps_stats_frames + pushfps_stats_failures;
+        const bool async = pushfps_readback != nullptr;
+        qCInfo(chiakiGui).nospace()
+            << "[pushfps] mode=" << (async ? "async" : "sync")
+            << " rendered=" << pushfps_stats_frames
+            << " failed=" << pushfps_stats_failures
+            << " delivered=" << (async ? pushfps_readback->takeCopied() : pushfps_stats_frames)
+            << " copy_failed=" << (async ? pushfps_readback->takeFailed() : 0)
+            << " skipped_busy=" << pushfps_stats_busy_skips
+            << " size=" << out_w << "x" << out_h
+            << " fps=" << fps
+            << " render_thread_avg_ms=" << (n ? (pushfps_stats_work_us / 1000.0) / n : 0.0)
+            << " render_thread_max_ms=" << (pushfps_stats_work_max_us / 1000.0)
+            << " copy_max_ms=" << (async ? pushfps_readback->takeCopyMaxUs() / 1000.0 : 0.0)
+            << " decode_to_pushfps_avg_ms=" << (async ? pushfps_readback->takeHeldAvgMs() : 0.0)
+            << " decode_to_pushfps_max_ms=" << (async ? pushfps_readback->takeHeldMaxMs() : 0.0)
+            << " stream_clock=" << (content_100ns >= 0 ? "yes" : "no")
+            << " total=" << pushfps_output->framesSent();
+        pushfps_stats_since_us = end_us;
+        pushfps_stats_frames = 0;
+        pushfps_stats_failures = 0;
+        pushfps_stats_busy_skips = 0;
+        pushfps_stats_work_us = 0;
+        pushfps_stats_work_max_us = 0;
+    }
+}
+
 void QmlMainWindow::updateVSync()
 {
     if (!pendingFrameOverflowEnabled()) {
@@ -6771,6 +7349,11 @@ void QmlMainWindow::render()
         }
     } render_guard(this, render_active, render_entry_us);
 
+    // NLFork: stop the PushFPS output as soon as it is switched off or the stream ends
+    if (pushfps_output && pushfps_output->isOpen() &&
+        (pushfps_output_enabled.loadAcquire() == 0 || stream_session_active.loadAcquire() == 0))
+        closePushFpsOutput();
+
     if (pending_frame_release_queued.loadAcquire() != 0) {
         const qint64 pending_release_queued_us = pending_frame_release_queued_us.loadAcquire();
         if (pending_release_queued_us > 0 && render_entry_us >= pending_release_queued_us) {
@@ -6995,9 +7578,13 @@ void QmlMainWindow::render()
     if (bypass_frame_queue) {
         AVFrame *incoming = nullptr;
         bool reset_direct_frame = false;
+        double incoming_pts = -1.0;
+        qint64 incoming_ready_us = 0;
         {
             QMutexLocker locker(&direct_frame_mutex);
             std::swap(incoming, direct_pending_frame);
+            incoming_pts = direct_pending_pts;
+            incoming_ready_us = direct_pending_ready_us;
             reset_direct_frame = direct_frame_reset.fetchAndStoreRelaxed(0) != 0;
         }
         if (reset_direct_frame) {
@@ -7016,6 +7603,10 @@ void QmlMainWindow::render()
                 direct_frame = {};
                 if (backend && backend->zeroCopy())
                     backend->disableZeroCopy();
+            } else {
+                pushfps_direct_generation++; // a new stream picture for the PushFPS output
+                direct_frame_pts = incoming_pts;
+                direct_frame_ready_us = incoming_ready_us;
             }
             av_frame_free(&incoming);
         }
@@ -7855,6 +8446,38 @@ void QmlMainWindow::render()
         }
     }
     close_started_frame(true);
+
+    // NLFork: the same stream picture for PushFPS, once per new picture (never a mixed or held one)
+    if (pushfps_output_enabled.loadAcquire() != 0 && stream_active) {
+        const struct pl_frame *pushfps_source = nullptr;
+        double pushfps_pts = -1.0;
+        qint64 pushfps_ready_us = 0;
+        if (bypass_frame_queue) {
+            pushfps_pts = direct_frame_pts;
+            pushfps_ready_us = direct_frame_ready_us;
+            if (direct_render_frame.num_planes > 0 && pushfps_direct_generation != pushfps_direct_sent_generation) {
+                pushfps_source = &direct_render_frame;
+                pushfps_direct_sent_generation = pushfps_direct_generation;
+            }
+        } else if (const struct pl_frame *current = pl_frame_mix_current(&frame_mix)) {
+            uint64_t signature = reinterpret_cast<uintptr_t>(current);
+            for (int i = 0; i < frame_mix.num_frames; i++) {
+                if (frame_mix.frames[i] == current && frame_mix.signatures) {
+                    signature = frame_mix.signatures[i];
+                    break;
+                }
+            }
+            if (!pushfps_have_signature || signature != pushfps_last_signature) {
+                pushfps_source = current;
+                pushfps_last_signature = signature;
+                pushfps_have_signature = true;
+            }
+        }
+        if (pushfps_source)
+            sendPushFpsFrame(pushfps_source, params, pushfps_pts, pushfps_ready_us);
+    } else if (pushfps_output && pushfps_output->isOpen()) {
+        closePushFpsOutput();
+    }
 
     if (startup_video_visible_refresh_pending.loadAcquire() != 0) {
         loading_transition_complete.storeRelease(1);

@@ -285,6 +285,13 @@ class Settings : public QObject
 		bool GetStreamerMode() const		{ return settings.value("settings/streamer_mode", false).toBool(); }
 		void SetStreamerMode(bool enabled)	{ settings.setValue("settings/streamer_mode", enabled); }
 
+		// NLFork: send the rendered picture to PushFPS (its Frame Input API) while streaming
+		bool GetPushFpsOutput() const           { return settings.value("settings/pushfps_output", false).toBool(); }
+		void SetPushFpsOutput(bool enabled)     { settings.setValue("settings/pushfps_output", enabled); }
+		// 0 = the screen's size, 1 = 1080p, 2 = 1440p, 3 = 4K
+		int GetPushFpsOutputSize() const        { return qBound(0, settings.value("settings/pushfps_output_size", 0).toInt(), 3); }
+		void SetPushFpsOutputSize(int size)     { settings.setValue("settings/pushfps_output_size", qBound(0, size, 3)); }
+
 		bool GetButtonsByPosition() const 		{ return settings.value("settings/buttons_by_pos", false).toBool(); }
 		void SetButtonsByPosition(bool enabled) { settings.setValue("settings/buttons_by_pos", enabled); }
 
