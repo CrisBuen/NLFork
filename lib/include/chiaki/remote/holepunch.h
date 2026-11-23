@@ -93,6 +93,13 @@ typedef enum chiaki_holepunch_port_type_t
  * @param[in] log logging instance to use
  * @return CHIAKI_ERR_SUCCESS on success, otherwise another error code
 */
+/**
+ * NLFork: CA bundle (PEM file) used by every HTTPS request of the PSN code. Needed on Android,
+ * where curl/OpenSSL cannot find the system CA store by themselves. NULL (the default) keeps
+ * curl's own configuration, so other platforms are unchanged.
+ */
+CHIAKI_EXPORT void chiaki_holepunch_set_ca_file(const char *path);
+
 CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     const char* psn_oauth2_token,
     ChiakiHolepunchConsoleType console_type, ChiakiHolepunchDeviceInfo** devices,

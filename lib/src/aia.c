@@ -15,6 +15,26 @@
 #include <stdlib.h>
 #include <string.h>
 
+static char *chiaki_curl_ca_file = NULL;
+
+CHIAKI_EXPORT void chiaki_holepunch_set_ca_file(const char *path)
+{
+	char *old = chiaki_curl_ca_file;
+	chiaki_curl_ca_file = path ? strdup(path) : NULL;
+	free(old);
+}
+
+const char *chiaki_curl_ca_file_get(void)
+{
+	return chiaki_curl_ca_file;
+}
+
+void chiaki_curl_apply_ca(CURL *curl)
+{
+	if(curl && chiaki_curl_ca_file)
+		curl_easy_setopt(curl, CURLOPT_CAINFO, chiaki_curl_ca_file);
+}
+
 #define AIA_PEM_BEGIN "-----BEGIN CERTIFICATE-----"
 #define AIA_MAX_HOPS 4
 
@@ -379,6 +399,7 @@ static bool aia_fetch_curl(const char *url, uint8_t **der_out, size_t *der_len_o
 	if(chiaki_aia_should_stop(control))
 		return false;
 	CURL *curl = curl_easy_init();
+	chiaki_curl_apply_ca(curl);
 	if(!curl)
 		return false;
 

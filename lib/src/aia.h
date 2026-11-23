@@ -61,6 +61,12 @@ bool chiaki_aia_verify_with_store(
 	const uint8_t *const *roots, const size_t *root_lens, size_t root_count,
 	ChiakiLog *log, char **pem_out, size_t *pem_len_out, void *trust_store);
 
+// NLFork: applies the CA file set with chiaki_holepunch_set_ca_file (no-op when unset or curl is NULL)
+void chiaki_curl_apply_ca(CURL *curl);
+// NLFork: that CA file, or NULL. CURLINFO_CAINFO only reports curl's built-in default (NULL on
+// Android), so code that needs the trust store of a connection must also look here.
+const char *chiaki_curl_ca_file_get(void);
+
 bool chiaki_aia_should_stop(const ChiakiAiaControl *control);
 bool chiaki_aia_configure_transfer(CURL *curl, const ChiakiAiaControl *control);
 bool chiaki_aia_public_ipv4(uint32_t address);

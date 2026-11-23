@@ -76,6 +76,10 @@ void *chiaki_aia_trust_store(CURL *connection)
 	if(curl_easy_getinfo(connection, CURLINFO_CAINFO, &file) != CURLE_OK ||
 		curl_easy_getinfo(connection, CURLINFO_CAPATH, &path) != CURLE_OK)
 		goto error;
+	// NLFork: CURLINFO_CAINFO is curl's built-in default, not CURLOPT_CAINFO. On Android there is
+	// no default, the app hands its CA bundle over with chiaki_holepunch_set_ca_file instead.
+	if(!file && !path)
+		file = chiaki_curl_ca_file_get();
 #ifdef _WIN32
 	const curl_version_info_data *version = curl_version_info(CURLVERSION_NOW);
 	if(version->ssl_version && strstr(version->ssl_version, "Schannel") && !file) {
@@ -320,6 +324,7 @@ bool chiaki_aia_peek_leaf(const char *host, uint8_t **der_out, size_t *der_len_o
 	snprintf(url, sizeof(url), "https://%s/", host);
 
 	CURL *curl = curl_easy_init();
+	chiaki_curl_apply_ca(curl);
 	if(!curl)
 		return false;
 

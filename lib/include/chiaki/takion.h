@@ -104,6 +104,13 @@ typedef struct chiaki_takion_event_t
 
 typedef void (*ChiakiTakionCallback)(ChiakiTakionEvent *event, void *user);
 
+/**
+ * NLFork: how long a missing video packet is waited for before the frame is given up, and the
+ * video reorder queue size (2^exp packets). 0 keeps the defaults (16 ms, 64 packets). Applies to
+ * sessions started afterwards.
+ */
+CHIAKI_EXPORT void chiaki_takion_set_av_jitter_tolerance(uint32_t reorder_timeout_us, unsigned int video_queue_size_exp);
+
 typedef struct chiaki_takion_connect_info_t
 {
 	ChiakiLog *log;

@@ -59,6 +59,17 @@ static void takion_log_rcvbuf(ChiakiTakion *takion)
 #define TAKION_AV_VIDEO_REORDER_QUEUE_SIZE_EXP 6 // => 64 entries
 #define TAKION_AV_REORDER_TIMEOUT_US 16000 // ~1 frame at 60fps
 
+// NLFork: runtime override of the two values above for weak connections (Android "Señal débil")
+static int64_t takion_av_reorder_timeout_us = TAKION_AV_REORDER_TIMEOUT_US;
+static size_t takion_av_video_queue_size_exp = TAKION_AV_VIDEO_REORDER_QUEUE_SIZE_EXP;
+
+CHIAKI_EXPORT void chiaki_takion_set_av_jitter_tolerance(uint32_t reorder_timeout_us, unsigned int video_queue_size_exp)
+{
+	takion_av_reorder_timeout_us = reorder_timeout_us > 0 ? (int64_t)reorder_timeout_us : TAKION_AV_REORDER_TIMEOUT_US;
+	takion_av_video_queue_size_exp = (video_queue_size_exp >= 4 && video_queue_size_exp <= 10)
+		? video_queue_size_exp : TAKION_AV_VIDEO_REORDER_QUEUE_SIZE_EXP;
+}
+
 // Hitch detector, only active once video is flowing. A "network gap" is a time with no packet
 // from the console at all (Wi-Fi or console side). A "receive stall" is this thread being busy
 // handling one packet (decoder submit or a callback blocking): packets then pile up in the
@@ -1054,7 +1065,7 @@ static void takion_av_queue_flush_with_timeout(ChiakiTakion *takion, ChiakiReord
 			break;
 		}
 
-		if(now - *head_wait_start_us <= TAKION_AV_REORDER_TIMEOUT_US)
+		if(now - *head_wait_start_us <= takion_av_reorder_timeout_us)
 			break;
 
 		// Timeout exceeded: skip directly to the first buffered packet so startup
@@ -1104,7 +1115,7 @@ static uint64_t takion_av_queues_next_timeout_ms(ChiakiTakion *takion)
 		if(head_wait_start_us == 0)
 			continue;
 
-		int64_t remaining_us = TAKION_AV_REORDER_TIMEOUT_US - (now - head_wait_start_us);
+		int64_t remaining_us = takion_av_reorder_timeout_us - (now - head_wait_start_us);
 		if(remaining_us <= 0)
 			return 0;
 
@@ -1772,7 +1783,7 @@ static void takion_handle_packet_av(ChiakiTakion *takion, uint8_t base_type, uin
 	bool *initialized = &takion->video_queue_initialized;
 	int64_t *head_wait = &takion->video_queue_head_wait_start_us;
 	uint64_t *head_wait_seq_num = &takion->video_queue_head_wait_seq_num;
-	size_t size_exp = TAKION_AV_VIDEO_REORDER_QUEUE_SIZE_EXP;
+	size_t size_exp = takion_av_video_queue_size_exp;
 
 	if(!*initialized)
 	{

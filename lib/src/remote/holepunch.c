@@ -465,6 +465,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     ChiakiLog *log)
 {
     CURL *curl = curl_easy_init();
+    chiaki_curl_apply_ca(curl);
     if(!curl)
     {
         CHIAKI_LOGE(log, "Curl could not init");
@@ -515,6 +516,9 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
     res = curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&response_data);
     if(res != CURLE_OK)
         CHIAKI_LOGW(log, "chiaki_holepunch_list_devices: CURL setopt CURLOPT_WRITEDATA failed with CURL error %s", curl_easy_strerror(res));
+    char curl_error_detail[CURL_ERROR_SIZE];
+    curl_error_detail[0] = '\0';
+    curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error_detail);
 
     res = curl_easy_perform(curl);
     curl_slist_free_all(headers);
@@ -528,7 +532,7 @@ CHIAKI_EXPORT ChiakiErrorCode chiaki_holepunch_list_devices(
             CHIAKI_LOGV(log, "Response Body: %.*s.", (int)response_data.size, response_data.data);
             err = CHIAKI_ERR_HTTP_NONOK;
         } else {
-            CHIAKI_LOGE(log, "chiaki_holepunch_list_devices: Fetching device list from %s failed with CURL error %s", url, curl_easy_strerror(res));
+            CHIAKI_LOGE(log, "chiaki_holepunch_list_devices: Fetching device list from %s failed with CURL error %d %s: %s", url, (int)res, curl_easy_strerror(res), curl_error_detail);
             err = CHIAKI_ERR_NETWORK;
         }
         goto cleanup;
@@ -1292,6 +1296,7 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
     };
 
     CURL *curl = curl_easy_init();
+    chiaki_curl_apply_ca(curl);
     if(!curl)
     {
         CHIAKI_LOGE(session->log, "Curl could not init");
@@ -1441,6 +1446,7 @@ static ChiakiErrorCode http_ps4_session_wakeup(Session *session)
         session->session_id);
 
     curl = curl_easy_init();
+    chiaki_curl_apply_ca(curl);
     if(!curl)
     {
         CHIAKI_LOGE(session->log, "Curl could not init");
@@ -1975,6 +1981,7 @@ static ChiakiErrorCode get_websocket_fqdn(Session *session, char **fqdn)
     };
 
     CURL *curl = curl_easy_init();
+    chiaki_curl_apply_ca(curl);
     if(!curl)
     {
         CHIAKI_LOGE(session->log, "Curl could not init");
@@ -2170,6 +2177,7 @@ static void* websocket_thread_func(void *user) {
     snprintf(ws_url, sizeof(ws_url), "wss://%s/np/pushNotification", session->ws_fqdn);
 
     CURL* curl = curl_easy_init();
+    chiaki_curl_apply_ca(curl);
     if(!curl)
     {
         CHIAKI_LOGE(session->log, "Curl could not init");
@@ -2249,6 +2257,9 @@ ws_connect_attempt:
             else {
                 const char *ca_path = NULL;
                 CURLcode ca_info_res = curl_easy_getinfo(curl, CURLINFO_CAINFO, &ca_path);
+                // NLFork: the CA file set with CURLOPT_CAINFO (Android) is not reported by CURLINFO_CAINFO
+                if(ca_info_res == CURLE_OK && !ca_path)
+                    ca_path = chiaki_curl_ca_file_get();
                 FILE *ca_file = ca_path ? fopen(ca_path, "rb") : NULL;
                 if(ca_info_res == CURLE_OK && (!ca_path || ca_file))
                     aia_blob = chiaki_aia_blob_with_ca(ca_file, &aia_blob_len);
@@ -3186,6 +3197,7 @@ static ChiakiErrorCode http_create_session(Session *session)
     };
 
     CURL* curl = curl_easy_init();
+    chiaki_curl_apply_ca(curl);
     if(!curl)
     {
         free(response_data.data);
@@ -3312,6 +3324,7 @@ static ChiakiErrorCode http_check_session(Session *session, bool viewurl)
     };
 
     CURL* curl = curl_easy_init();
+    chiaki_curl_apply_ca(curl);
     if(!curl)
     {
         free(response_data.data);
@@ -3431,6 +3444,7 @@ static ChiakiErrorCode http_start_session(Session *session)
     };
 
     CURL *curl = curl_easy_init();
+    chiaki_curl_apply_ca(curl);
     if(!curl)
     {
         free(response_data.data);
@@ -3552,6 +3566,7 @@ static ChiakiErrorCode http_send_session_message(Session *session, SessionMessag
     );
     CHIAKI_LOGV(session->log, "Message to send: %s", msg_buf);
     CURL *curl = curl_easy_init();
+    chiaki_curl_apply_ca(curl);
     if(!curl)
     {
         free(payload_str);
@@ -3633,6 +3648,7 @@ static ChiakiErrorCode deleteSession(Session *session)
     snprintf(url, sizeof(url), delete_messsage_url_fmt, session->session_id);
 
     CURL *curl = curl_easy_init();
+    chiaki_curl_apply_ca(curl);
     if(!curl)
     {
         free(response_data.data);
@@ -5987,6 +6003,7 @@ static ChiakiErrorCode get_stun_servers(Session *session)
     ChiakiErrorCode err = CHIAKI_ERR_SUCCESS;
     const char STUN_HOSTS_URL[] = "https://raw.githubusercontent.com/pradt2/always-online-stun/master/valid_hosts.txt";
     CURL *curl = curl_easy_init();
+    chiaki_curl_apply_ca(curl);
     if(!curl)
     {
         CHIAKI_LOGE(session->log, "Curl could not init");
@@ -6081,6 +6098,7 @@ static ChiakiErrorCode get_stun_servers(Session *session)
     curl = NULL;
     const char STUN_HOSTS_URL_IPV6[] = "https://raw.githubusercontent.com/pradt2/always-online-stun/master/valid_ipv6s.txt";
     curl = curl_easy_init();
+    chiaki_curl_apply_ca(curl);
     if(!curl)
     {
         CHIAKI_LOGE(session->log, "Curl could not init");

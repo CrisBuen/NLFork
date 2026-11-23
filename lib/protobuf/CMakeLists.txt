@@ -11,7 +11,9 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/takion.pb"
 set(SOURCE_FILES "${CMAKE_CURRENT_BINARY_DIR}/takion.pb.c")
 set(HEADER_FILES "${CMAKE_CURRENT_BINARY_DIR}/takion.pb.h")
 
-if(UNIX AND IS_ABSOLUTE "${PROTOC}")
+# CMAKE_HOST_UNIX, not UNIX: when cross-compiling for Android on Windows UNIX is true but the
+# host PATH separator is ";".
+if(CMAKE_HOST_UNIX AND IS_ABSOLUTE "${PROTOC}")
 	# make sure protoc is in PATH when invoking the generator below, which needs it.
 	get_filename_component(PROTOC_PATH "${PROTOC}" DIRECTORY)
 	set(GEN_PREFIX "${CMAKE_COMMAND}" -E env "PATH=${PROTOC_PATH}:$ENV{PATH}")
