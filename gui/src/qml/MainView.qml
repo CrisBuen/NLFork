@@ -179,6 +179,16 @@ Pane {
                 }
             }
 
+            // NLFork "Modo máximo" (also in Settings → Stream)
+            PillButton {
+                highlighted: Chiaki.settings.maxQualityMode
+                text: Chiaki.settings.maxQualityMode ? qsTr("Max mode: on") : qsTr("Max mode: off")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+                ToolTip.text: qsTr("Full quality also over the internet, and NLFork ahead of Discord and other background apps")
+                onClicked: Chiaki.settings.maxQualityMode = !Chiaki.settings.maxQualityMode
+            }
+
             Item { Layout.fillWidth: true }
 
             // NLFork: a newer version is on GitHub

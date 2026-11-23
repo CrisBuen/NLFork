@@ -32,6 +32,7 @@ class QmlSettings : public QObject
 #endif
     Q_PROPERTY(bool showStreamStats READ showStreamStats WRITE setShowStreamStats NOTIFY showStreamStatsChanged)
     Q_PROPERTY(bool autoReconnect READ autoReconnect WRITE setAutoReconnect NOTIFY autoReconnectChanged)
+    Q_PROPERTY(bool maxQualityMode READ maxQualityMode WRITE setMaxQualityMode NOTIFY maxQualityModeChanged)
     Q_PROPERTY(bool streamerMode READ streamerMode WRITE setStreamerMode NOTIFY streamerModeChanged)
     Q_PROPERTY(bool pushFpsOutput READ pushFpsOutput WRITE setPushFpsOutput NOTIFY pushFpsOutputChanged)
     Q_PROPERTY(int pushFpsOutputSize READ pushFpsOutputSize WRITE setPushFpsOutputSize NOTIFY pushFpsOutputSizeChanged)
@@ -187,6 +188,8 @@ public:
     void setShowStreamStats(bool enabled);
     bool autoReconnect() const;
     void setAutoReconnect(bool enabled);
+    bool maxQualityMode() const;
+    void setMaxQualityMode(bool enabled);
 
     bool streamerMode() const;
     void setStreamerMode(bool enabled);
@@ -667,6 +670,7 @@ signals:
     void audioVideoDisabledChanged();
     void showStreamStatsChanged();
     void autoReconnectChanged();
+    void maxQualityModeChanged();
     void streamerModeChanged();
     void pushFpsOutputChanged();
     void pushFpsOutputSizeChanged();

@@ -1304,6 +1304,13 @@ void QmlBackend::createSession(const StreamSessionConnectInfo &connect_info)
         if (session_for_connections->IsConnected()) {
             setDiscoveryEnabled(false);
             session_reached_stream = true;
+            // NLFork: on some PCs (seen with an HDR monitor) the picture stays black or soft until
+            // the user switches away and back with Alt+Tab. Do that rebuild once by ourselves,
+            // when the first pictures have arrived.
+            QTimer::singleShot(3000, this, [this, session_for_connections]() {
+                if (session == session_for_connections && window && session_for_connections->IsConnected())
+                    window->refreshSwapchain(QStringLiteral("stream start"));
+            });
             if (reconnect_attempt > 0) {
                 qCInfo(chiakiGui).nospace() << "[reconnect] Stream restored on attempt " << reconnect_attempt;
                 setReconnectAttempt(0);

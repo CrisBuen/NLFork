@@ -1,5 +1,11 @@
 {
 "_comment": "Traduccion de NLFork al espanol. Clave = texto original en ingles (tal cual en qsTr/tr), valor = traduccion. Los textos que no estan aqui se muestran en ingles.",
+"Max mode:": "Modo máximo:",
+"Max mode: on": "Modo máximo: activado",
+"Max mode: off": "Modo máximo: apagado",
+"Always full quality, NLFork first": "Calidad máxima siempre y NLFork primero",
+"Uses the Local column also when you connect over the internet (PSN), instead of the Remote one (720p by default). NLFork also runs ahead of Discord and other apps in the background: high CPU and GPU priority, no Windows power saving.": "Usa la columna Local también cuando te conectas por internet (PSN), en vez de la columna Remoto (que trae 720p). Además, NLFork va por delante de Discord y de las otras apps en segundo plano: prioridad alta de procesador y de tarjeta de video, sin ahorro de energía de Windows.",
+"Full quality also over the internet, and NLFork ahead of Discord and other background apps": "Calidad máxima también por internet, y NLFork por delante de Discord y de las otras apps en segundo plano",
 " % console setting": " % ajuste de la consola",
 " button to map to DualSense controller button or click close": " para asignarlo al botón del DualSense o pulsa Cerrar",
 " guesses": " intentos",

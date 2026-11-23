@@ -403,9 +403,11 @@ Window {
             text: {
                 if (!Chiaki.session)
                     return "";
+                // NLFork: what was asked of the console (resolution, fps, bitrate, Local or Internet)
+                var info = Chiaki.session.streamInfo ? "<br><small>" + Chiaki.session.streamInfo + "</small>" : "";
                 if (Chiaki.session.connected)
-                    return qsTr("Connected to <b>%1</b>").arg(Chiaki.settings.streamerMode ? "hidden" : Chiaki.session.host);
-                return qsTr("Connecting to <b>%1</b>").arg(Chiaki.settings.streamerMode ? "hidden" : Chiaki.session.host);
+                    return qsTr("Connected to <b>%1</b>").arg(Chiaki.settings.streamerMode ? "hidden" : Chiaki.session.host) + info;
+                return qsTr("Connecting to <b>%1</b>").arg(Chiaki.settings.streamerMode ? "hidden" : Chiaki.session.host) + info;
             }
 
             RowLayout {

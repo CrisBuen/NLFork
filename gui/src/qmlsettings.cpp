@@ -1,5 +1,6 @@
 #include "qmlsettings.h"
 #include "sessionlog.h"
+#include "nlforkpriority.h"
 
 #include <QSet>
 #include <QKeySequence>
@@ -67,6 +68,10 @@ QmlSettings::QmlSettings(Settings *settings, QObject *parent)
 
     connect(settings, &Settings::RegisteredHostsUpdated, this, &QmlSettings::registeredHostsChanged);
     connect(settings, &Settings::ProfilesUpdated, this, &QmlSettings::profilesChanged);
+
+    // NLFork "Modo máximo" stays on across restarts
+    if (settings->GetMaxQualityMode())
+        NLForkApplyMaxPriority(true);
 }
 
 bool QmlSettings::remotePlayAsk() const
@@ -122,6 +127,18 @@ void QmlSettings::setAutoReconnect(bool enabled)
 {
     settings->SetAutoReconnect(enabled);
     emit autoReconnectChanged();
+}
+
+bool QmlSettings::maxQualityMode() const
+{
+    return settings->GetMaxQualityMode();
+}
+
+void QmlSettings::setMaxQualityMode(bool enabled)
+{
+    settings->SetMaxQualityMode(enabled);
+    NLForkApplyMaxPriority(enabled);
+    emit maxQualityModeChanged();
 }
 
 bool QmlSettings::streamerMode() const
@@ -1934,6 +1951,8 @@ void QmlSettings::refreshAllKeys()
     emit startMicUnmutedChanged();
     emit showStreamStatsChanged();
     emit autoReconnectChanged();
+    NLForkApplyMaxPriority(settings->GetMaxQualityMode());
+    emit maxQualityModeChanged();
     emit streamerModeChanged();
     emit pushFpsOutputChanged();
     emit pushFpsOutputSizeChanged();

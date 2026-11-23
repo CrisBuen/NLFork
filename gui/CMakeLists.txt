@@ -59,6 +59,8 @@ set(SOURCE_FILES
 	src/systemdinhibit.cpp
 	include/updater.h
 	src/updater.cpp
+	include/nlforkpriority.h
+	src/nlforkpriority.cpp
 	)
 set(RESOURCE_FILES "")
 

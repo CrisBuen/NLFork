@@ -278,6 +278,10 @@ class Settings : public QObject
 		void SetShowStreamStats(bool enabled)      { settings.setValue("settings/show_stream_stats", enabled); }
 		bool GetAutoReconnect() const              { return settings.value("settings/auto_reconnect", true).toBool(); }
 		void SetAutoReconnect(bool enabled)        { settings.setValue("settings/auto_reconnect", enabled); }
+		// NLFork "Modo máximo": the Local stream settings are used over the internet (PSN) too, and NLFork
+		// runs ahead of background apps (see nlforkpriority.h)
+		bool GetMaxQualityMode() const             { return settings.value("settings/max_quality_mode", false).toBool(); }
+		void SetMaxQualityMode(bool enabled)       { settings.setValue("settings/max_quality_mode", enabled); }
 		// NLFork button remap, e.g. "touchpad=back+start;l2=paddle1" (empty = default layout)
 		QString GetControllerRemap() const         { return settings.value("settings/controller_remap", QString()).toString(); }
 		void SetControllerRemap(const QString &spec) { settings.setValue("settings/controller_remap", spec); }

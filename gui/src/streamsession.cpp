@@ -284,8 +284,14 @@ StreamSessionConnectInfo::StreamSessionConnectInfo(
 	log_sanitize = settings->GetLogSanitize();
 	audio_volume = settings->GetAudioVolume();
 	log_file = CreateLogFilename();
+	const bool local_connection = duid.isEmpty() && isLocalAddress(host);
+	connection_kind = local_connection ? QStringLiteral("Local")
+		: (duid.isEmpty() ? QStringLiteral("Internet") : QStringLiteral("Internet (PSN)"));
+	// NLFork "Modo máximo": the Remote column defaults to 720p, which looks blurry on a good
+	// connection; with the mode on every connection uses the Local column
+	max_quality_mode = settings->GetMaxQualityMode();
 	// local connection
-	if(duid.isEmpty() && isLocalAddress(host))
+	if(local_connection || max_quality_mode)
 		video_profile = chiaki_target_is_ps5(target) ? settings->GetVideoProfileLocalPS5(): settings->GetVideoProfileLocalPS4();
 	// remote connection
 	else
@@ -490,6 +496,16 @@ StreamSession::StreamSession(const StreamSessionConnectInfo &connect_info, QObje
 		chiaki_connect_info.video_profile.codec = CHIAKI_CODEC_H264;
 	}
 #endif
+	// NLFork: what was asked of the console, shown in the stream menu and written to the log
+	const ChiakiConnectVideoProfile &asked = chiaki_connect_info.video_profile;
+	stream_info = QStringLiteral("%1p · %2 fps · %3 Mbps · %4")
+		.arg(asked.height).arg(asked.max_fps).arg(asked.bitrate / 1000)
+		.arg(connect_info.connection_kind.isEmpty() ? QStringLiteral("?") : connect_info.connection_kind);
+	CHIAKI_LOGI(GetChiakiLog(), "NLFork stream profile: %ux%u @ %u fps, %u kbps, codec %d, connection %s, max mode %s, hw decoder %s",
+		asked.width, asked.height, asked.max_fps, asked.bitrate, (int)asked.codec,
+		connect_info.connection_kind.toUtf8().constData(),
+		connect_info.max_quality_mode ? "on" : "off",
+		connect_info.hw_decoder.isEmpty() ? "none (software)" : connect_info.hw_decoder.toUtf8().constData());
 	if(connect_info.duid.isEmpty())
 	{
 		if(connect_info.regist_key.size() != sizeof(chiaki_connect_info.regist_key))

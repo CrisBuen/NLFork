@@ -177,6 +177,8 @@ public slots:
     void updatePushFpsOutput();
     void updateVSync();
     void updateVulkanDeferredSwap();
+    // NLFork: rebuild the Vulkan swapchain once, as switching away and back with Alt+Tab does
+    void refreshSwapchain(const QString &reason);
     void show();
     void presentFrame(ChiakiFfmpegFrame frame, int32_t frames_lost, qint64 decoder_delivery_us = 0);
 

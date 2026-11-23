@@ -1491,7 +1491,7 @@ DialogView {
                         value: Chiaki.settings.bitrateLocalPS4 / 1000 ? (Chiaki.settings.bitrateLocalPS4 / 1000) : bitrate
                         onMoved: Chiaki.settings.bitrateLocalPS4 = value * 1000;
                         KeyNavigation.up: fpsLocalPS4
-                        KeyNavigation.down: bitrateLocalPS4
+                        KeyNavigation.down: maxQualityModeCheck
                         KeyNavigation.priority: KeyNavigation.BeforeItem
                         Label {
                             anchors {
@@ -1523,7 +1523,7 @@ DialogView {
                         value: Chiaki.settings.bitrateRemotePS4 / 1000 ? (Chiaki.settings.bitrateRemotePS4 / 1000) : bitrate
                         onMoved: Chiaki.settings.bitrateRemotePS4 = value * 1000;
                         KeyNavigation.up: fpsRemotePS4
-                        KeyNavigation.down: bitrateRemotePS4
+                        KeyNavigation.down: maxQualityModeCheck
                         KeyNavigation.priority: KeyNavigation.BeforeItem
                         lastInFocusChain: true
 
@@ -1629,7 +1629,7 @@ DialogView {
                         }
                         KeyNavigation.up: bitrateLocalPS5
                         KeyNavigation.right: codecRemotePS5
-                        KeyNavigation.down: codecLocalPS5
+                        KeyNavigation.down: maxQualityModeCheck
                         KeyNavigation.priority: {
                             if(!popup.visible)
                                 KeyNavigation.BeforeItem
@@ -1656,6 +1656,7 @@ DialogView {
                             }
                             KeyNavigation.up: bitrateRemotePS5
                             KeyNavigation.left: codecLocalPS5
+                            KeyNavigation.down: maxQualityModeCheck
                             KeyNavigation.priority: {
                                 if(!popup.visible)
                                     KeyNavigation.BeforeItem
@@ -1663,6 +1664,32 @@ DialogView {
                                     KeyNavigation.AfterItem
                             }
                         }
+
+                    // NLFork "Modo máximo"
+                    Label {
+                        Layout.alignment: Qt.AlignRight
+                        Layout.topMargin: 16
+                        text: qsTr("Max mode:")
+                        font.bold: true
+                    }
+
+                    C.CheckBox {
+                        id: maxQualityModeCheck
+                        Layout.topMargin: 16
+                        text: qsTr("Always full quality, NLFork first")
+                        checked: Chiaki.settings.maxQualityMode
+                        onToggled: Chiaki.settings.maxQualityMode = checked
+                        lastInFocusChain: true
+                        KeyNavigation.up: selectedConsole == SettingsDialog.Console.PS5 ? codecLocalPS5 : bitrateLocalPS4
+                    }
+
+                    Label {
+                        Layout.topMargin: 16
+                        Layout.preferredWidth: 400
+                        wrapMode: Text.Wrap
+                        opacity: 0.75
+                        text: qsTr("Uses the Local column also when you connect over the internet (PSN), instead of the Remote one (720p by default). NLFork also runs ahead of Discord and other apps in the background: high CPU and GPU priority, no Windows power saving.")
+                    }
                     }
                 }
             }

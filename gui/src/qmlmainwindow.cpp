@@ -6685,6 +6685,19 @@ void QmlMainWindow::updateVSync()
     scheduleUpdate(true, UpdateRequestReason::VSync);
 }
 
+void QmlMainWindow::refreshSwapchain(const QString &reason)
+{
+    if (render_backend != RenderBackend::Vulkan)
+        return;
+    // Same path as a VSync change: render() destroys the swapchain, then builds it again for the
+    // window's current size, which is what hiding and showing the window (Alt+Tab) does
+    qCInfo(chiakiGui).noquote() << "[nlfork] Rebuilding the Vulkan swapchain:" << reason;
+    armQuickNeedSync("nlfork_swapchain_refresh");
+    quick_need_render.storeRelaxed(1);
+    swapchain_recreate_pending.storeRelaxed(1);
+    scheduleUpdate(true, UpdateRequestReason::VSync);
+}
+
 void QmlMainWindow::updateVulkanDeferredSwap()
 {
     if (!settings)

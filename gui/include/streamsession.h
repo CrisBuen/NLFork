@@ -86,6 +86,10 @@ class SdeckHapticsWorker;
 		QByteArray morning;
 		QString initial_login_pin;
 		ChiakiConnectVideoProfile video_profile;
+		// NLFork: how the console is reached ("Local", "Internet" or "Internet (PSN)"), and whether
+		// "Modo máximo" put the Local stream settings on an internet connection
+		QString connection_kind;
+		bool max_quality_mode = false;
 		double packet_loss_max;
 		unsigned int audio_buffer_size;
 		int audio_volume;
@@ -153,6 +157,7 @@ class StreamSession : public QObject
 
 	Q_OBJECT
 	Q_PROPERTY(QString host READ GetHost CONSTANT)
+	Q_PROPERTY(QString streamInfo READ GetStreamInfo CONSTANT)
 	Q_PROPERTY(bool connected READ GetConnected NOTIFY ConnectedChanged)
 	Q_PROPERTY(double measuredBitrate READ GetMeasuredBitrate NOTIFY MeasuredBitrateChanged)
 	Q_PROPERTY(double averagePacketLoss READ GetAveragePacketLoss NOTIFY AveragePacketLossChanged)
@@ -177,6 +182,7 @@ class StreamSession : public QObject
 		bool allow_unmute;
 		int input_block;
 		QString host;
+		QString stream_info;
 		int audio_volume;
 		double measured_bitrate = 0;
 		double average_packet_loss = 0;
@@ -347,6 +353,7 @@ class StreamSession : public QObject
 		void SetLoginPIN(const QString &pin);
 		void GoHome();
 		QString GetHost() { return host; }
+		QString GetStreamInfo() { return stream_info; }
 		bool GetConnected() { return connected; }
 		double GetMeasuredBitrate()	{ return measured_bitrate; }
 		double GetAveragePacketLoss()	{ return average_packet_loss; }
